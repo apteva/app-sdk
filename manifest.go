@@ -142,15 +142,44 @@ type WorkerSpec struct {
 	Schedule string `yaml:"schedule" json:"schedule"`
 }
 
-// Runtime tells the orchestrator how to deploy the sidecar.
+// Runtime declares how the sidecar gets started. Three delivery modes
+// can be declared together on one manifest; the platform picks the
+// best one available:
+//
+//   source    — primary path for Go apps. Manifest names a git repo +
+//               ref; the platform clones, runs `go build`, caches the
+//               resulting binary under ~/.apteva/apps/<name>/<version>/
+//               and spawns it. Authors push source — no per-platform
+//               builds, no release pipeline. Requires Go on the host.
+//
+//   binaries  — pre-built native binaries, keyed "<os>-<arch>". The
+//               platform downloads, caches, and spawns. Use when the
+//               app is closed-source or wants a polished release flow.
+//
+//   image     — fallback for non-Go apps or when extra isolation
+//               matters. Orchestrator deploys the image to a worker.
 type Runtime struct {
-	Kind        string             `yaml:"kind" json:"kind"`             // service (only kind today)
+	Kind        string             `yaml:"kind" json:"kind"`             // service | source
 	Image       string             `yaml:"image" json:"image"`
+	Binaries    map[string]string  `yaml:"binaries" json:"binaries"`     // key: "<os>-<arch>" e.g. "linux-amd64", "darwin-arm64"
+	Source      *SourceSpec        `yaml:"source,omitempty" json:"source,omitempty"`
 	Port        int                `yaml:"port" json:"port"`
 	HealthCheck string             `yaml:"health_check" json:"health_check"`
 	Resources   ResourceLimits     `yaml:"resources" json:"resources"`
 	Storage     []StorageSpec      `yaml:"storage" json:"storage"`
 	Env         map[string]EnvFrom `yaml:"env" json:"env"`
+}
+
+// SourceSpec — git-clone-and-build delivery. Paired with kind: source.
+// Repo is the canonical module path ("github.com/apteva/app-tasks");
+// the platform turns it into a clone URL. Ref is a tag, branch, or
+// commit SHA; for branches the supervisor re-clones on each install
+// so 'main' tracks tip-of-tree. Entry is the `go build` target inside
+// the repo (default ".").
+type SourceSpec struct {
+	Repo  string `yaml:"repo" json:"repo"`
+	Ref   string `yaml:"ref" json:"ref"`
+	Entry string `yaml:"entry" json:"entry"`
 }
 
 type ResourceLimits struct {
@@ -285,12 +314,21 @@ func ValidateManifest(m *Manifest) error {
 			return fmt.Errorf("unknown permission %q", p)
 		}
 	}
-	if m.Runtime.Kind != "" && m.Runtime.Kind != "service" {
-		return fmt.Errorf("runtime.kind %q unsupported (only 'service' today)", m.Runtime.Kind)
+	if m.Runtime.Kind != "" && m.Runtime.Kind != "service" && m.Runtime.Kind != "source" {
+		return fmt.Errorf("runtime.kind %q unsupported (service | source)", m.Runtime.Kind)
+	}
+	if m.Runtime.Kind == "source" {
+		if m.Runtime.Source == nil || m.Runtime.Source.Repo == "" {
+			return errors.New("runtime.source.repo required when kind=source")
+		}
+		if m.Runtime.Port == 0 {
+			return errors.New("runtime.port required when kind=source")
+		}
 	}
 	if m.Runtime.Kind == "service" {
-		if m.Runtime.Image == "" {
-			return errors.New("runtime.image required when kind=service")
+		// At least one delivery mode must be declared.
+		if m.Runtime.Image == "" && len(m.Runtime.Binaries) == 0 && m.Runtime.Source == nil {
+			return errors.New("runtime requires source, binaries, or image")
 		}
 		if m.Runtime.Port == 0 {
 			return errors.New("runtime.port required when kind=service")
