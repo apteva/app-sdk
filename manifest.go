@@ -56,10 +56,25 @@ const (
 )
 
 // Requires lists what the app needs from the platform — permissions,
-// MCP tools the user must attach, minimum platform version.
+// MCP tools the user must attach, minimum platform version, and
+// other Apteva apps that must be installed alongside.
 type Requires struct {
-	Permissions       []Permission `yaml:"permissions" json:"permissions"`
-	MCPToolsAtRuntime []string     `yaml:"mcp_tools_at_runtime" json:"mcp_tools_at_runtime"`
+	Permissions       []Permission        `yaml:"permissions" json:"permissions"`
+	MCPToolsAtRuntime []string            `yaml:"mcp_tools_at_runtime" json:"mcp_tools_at_runtime"`
+	Apps              []RequiredAppRef    `yaml:"apps,omitempty" json:"apps,omitempty"`
+}
+
+// RequiredAppRef declares a dependency on another Apteva app. The
+// platform's install flow uses this to install missing deps in topo
+// order before this app, and the uninstall flow uses it to refuse
+// removing an app another app hard-depends on. Optional deps
+// degrade gracefully — the dependent's UI hides surfaces tied to
+// the missing app instead of failing.
+type RequiredAppRef struct {
+	Name     string `yaml:"name" json:"name"`                         // matches the dep's manifest.name
+	Version  string `yaml:"version,omitempty" json:"version,omitempty"` // semver constraint, ">=1.0.0" form; empty = any
+	Reason   string `yaml:"reason,omitempty" json:"reason,omitempty"`   // human-readable; surfaced in the dashboard
+	Optional bool   `yaml:"optional,omitempty" json:"optional,omitempty"`
 }
 
 // Provides describes the surfaces this app contributes back to the
