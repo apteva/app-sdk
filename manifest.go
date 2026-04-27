@@ -118,9 +118,19 @@ type UIPage struct {
 // UIApp declares a standalone, own-origin UI served at a Traefik
 // subdomain — for white-label client portals.
 type UIApp struct {
+	// DomainTemplate — Traefik-style host pattern for own-origin
+	// deployments (e.g. "{tenant}.client.example.com"). Empty value
+	// means same-origin, path-mounted under apteva-server itself —
+	// see MountPath. The template path is the future white-label flow;
+	// the same-origin path is what install_kind=static actually uses.
 	DomainTemplate string   `yaml:"domain_template" json:"domain_template"`
-	Auth           string   `yaml:"auth" json:"auth"` // platform | none | own
-	Branding       Branding `yaml:"branding" json:"branding"`
+	// MountPath — used when DomainTemplate is empty. The static bundle
+	// is served at apteva-server's `<MountPath>/...` (e.g. "/client").
+	// Defaults to "/" + manifest.name when unset; admins can override
+	// per-install via config_schema's `mount_path` key.
+	MountPath string   `yaml:"mount_path,omitempty" json:"mount_path,omitempty"`
+	Auth      string   `yaml:"auth" json:"auth"` // platform | none | own
+	Branding  Branding `yaml:"branding" json:"branding"`
 }
 
 type Branding struct {
@@ -159,10 +169,23 @@ type WorkerSpec struct {
 //   image     — fallback for non-Go apps or when extra isolation
 //               matters. Orchestrator deploys the image to a worker.
 type Runtime struct {
-	Kind        string             `yaml:"kind" json:"kind"`             // service | source
+	// Kind — "service" | "source" | "static". The first two start a
+	// sidecar (image pull or git build); "static" means no process at
+	// all — the app contributes only assets that apteva-server mounts
+	// directly under its own HTTP mux. UI-only apps (single-page
+	// portals, marketing kiosks, etc.) pick "static" and skip every
+	// field below except StaticDir.
+	Kind        string             `yaml:"kind" json:"kind"`             // service | source | static
 	Image       string             `yaml:"image" json:"image"`
 	Binaries    map[string]string  `yaml:"binaries" json:"binaries"`     // key: "<os>-<arch>" e.g. "linux-amd64", "darwin-arm64"
 	Source      *SourceSpec        `yaml:"source,omitempty" json:"source,omitempty"`
+	// StaticDir — only meaningful when Kind == "static". Path inside
+	// the app repo (relative) or absolute on disk where the prebuilt
+	// SPA / asset directory lives. apteva-server serves this as a
+	// path-mounted handler with SPA fallback. The directory must
+	// exist at install time; for `kind: source` apps we'd build it
+	// first, but static apps generally ship a `dist/` already.
+	StaticDir   string             `yaml:"static_dir,omitempty" json:"static_dir,omitempty"`
 	Port        int                `yaml:"port" json:"port"`
 	HealthCheck string             `yaml:"health_check" json:"health_check"`
 	Resources   ResourceLimits     `yaml:"resources" json:"resources"`
@@ -314,8 +337,13 @@ func ValidateManifest(m *Manifest) error {
 			return fmt.Errorf("unknown permission %q", p)
 		}
 	}
-	if m.Runtime.Kind != "" && m.Runtime.Kind != "service" && m.Runtime.Kind != "source" {
-		return fmt.Errorf("runtime.kind %q unsupported (service | source)", m.Runtime.Kind)
+	if m.Runtime.Kind != "" && m.Runtime.Kind != "service" && m.Runtime.Kind != "source" && m.Runtime.Kind != "static" {
+		return fmt.Errorf("runtime.kind %q unsupported (service | source | static)", m.Runtime.Kind)
+	}
+	if m.Runtime.Kind == "static" {
+		if m.Runtime.StaticDir == "" {
+			return errors.New("runtime.static_dir required when kind=static")
+		}
 	}
 	if m.Runtime.Kind == "source" {
 		if m.Runtime.Source == nil || m.Runtime.Source.Repo == "" {

@@ -11,6 +11,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"syscall"
@@ -81,6 +82,14 @@ func Run(app App) {
 	port := manifest.Runtime.Port
 	if port == 0 {
 		port = 8080 // dev default
+	}
+	// APTEVA_APP_PORT — platform-injected when multiple apps run on one
+	// host so they don't collide on the manifest's static port. Local
+	// installer picks a free port per install.
+	if v := os.Getenv("APTEVA_APP_PORT"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			port = n
+		}
 	}
 	srv := &http.Server{
 		Addr:              fmt.Sprintf(":%d", port),
