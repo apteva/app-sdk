@@ -1,0 +1,65 @@
+package testkit
+
+// Option modifies the construction of test fixtures. Compose freely:
+//
+//	tk.NewAppCtx(t, "apteva.yaml",
+//	    tk.WithProjectID("test-proj"),
+//	    tk.WithEnv("PHONE_DEFAULT_COUNTRY", "GB"),
+//	)
+type Option func(*config)
+
+type config struct {
+	projectID string
+	env       map[string]string
+	cfg       map[string]string
+	port      int // sidecar only; 0 = pick free
+}
+
+// WithProjectID sets APTEVA_PROJECT_ID for the test fixture. For
+// Tier 1 it's surfaced via os.Setenv during the test (cleaned up at
+// t.Cleanup). For Tier 2 it's passed to the spawned binary as an env
+// var. Default: empty (treated as `scope: global` install).
+func WithProjectID(id string) Option {
+	return func(c *config) { c.projectID = id }
+}
+
+// WithEnv injects an environment variable. Multiple calls accumulate.
+// For Tier 1, set with os.Setenv for the test's lifetime; for Tier 2,
+// merged into the sidecar's env at spawn time.
+func WithEnv(key, value string) Option {
+	return func(c *config) {
+		if c.env == nil {
+			c.env = map[string]string{}
+		}
+		c.env[key] = value
+	}
+}
+
+// WithConfig populates APTEVA_APP_CONFIG (the JSON blob the platform
+// passes to a sidecar) with the given key/value pairs. For Tier 1 it
+// becomes the sdk.Config attached to the AppCtx.
+func WithConfig(values map[string]string) Option {
+	return func(c *config) {
+		if c.cfg == nil {
+			c.cfg = map[string]string{}
+		}
+		for k, v := range values {
+			c.cfg[k] = v
+		}
+	}
+}
+
+// WithPort pins the sidecar's listen port. Default is 0 (testkit
+// picks a free port). Useful when a test wants to assert against a
+// known URL.
+func WithPort(port int) Option {
+	return func(c *config) { c.port = port }
+}
+
+func resolveOptions(opts []Option) *config {
+	c := &config{env: map[string]string{}, cfg: map[string]string{}}
+	for _, o := range opts {
+		o(c)
+	}
+	return c
+}

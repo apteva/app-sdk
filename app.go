@@ -141,6 +141,43 @@ func (c *AppCtx) Logger() Logger { return c.logger }
 // sidecar to shut down. Long-running workers should select on it.
 func (c *AppCtx) Done() <-chan struct{} { return c.cancel }
 
+// NewAppCtxForTest constructs an *AppCtx for use by the testkit
+// package and its callers. Production code never needs this — the
+// framework builds AppCtx in Run(). Exposed so app-sdk/testkit can
+// hand-craft a context backed by an in-memory database, with no
+// platform client and a no-op logger.
+//
+// Pass nil for any of: manifest (gets a zero-value pointer),
+// platform (tests that don't call platform), logger (uses the
+// silent default). cfg may be nil — becomes empty Config.
+func NewAppCtxForTest(manifest *Manifest, db *sql.DB, cfg Config, platform PlatformClient, logger Logger) *AppCtx {
+	if manifest == nil {
+		manifest = &Manifest{}
+	}
+	if cfg == nil {
+		cfg = Config{}
+	}
+	if logger == nil {
+		logger = silentLogger{}
+	}
+	return &AppCtx{
+		manifest: manifest,
+		cfg:      cfg,
+		db:       db,
+		platform: platform,
+		logger:   logger,
+		cancel:   make(chan struct{}),
+	}
+}
+
+// silentLogger drops every message — used as the test default so
+// `go test -v` output isn't drowned in app boot logs.
+type silentLogger struct{}
+
+func (silentLogger) Info(string, ...any)  {}
+func (silentLogger) Warn(string, ...any)  {}
+func (silentLogger) Error(string, ...any) {}
+
 // Config — typed access to user-supplied install configuration.
 type Config map[string]string
 

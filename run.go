@@ -345,8 +345,16 @@ func (h *mcpHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 					writeMCPErr(w, req.ID, -32000, err.Error())
 					return
 				}
+				// Encode as JSON so MCP clients can parse the result
+				// back into structured data. fmt.Sprint produces Go's
+				// map syntax which no client understands.
+				body, jerr := json.Marshal(res)
+				if jerr != nil {
+					writeMCPErr(w, req.ID, -32000, "encode result: "+jerr.Error())
+					return
+				}
 				writeMCP(w, req.ID, map[string]any{"content": []map[string]any{
-					{"type": "text", "text": fmt.Sprint(res)},
+					{"type": "text", "text": string(body)},
 				}})
 				return
 			}
@@ -374,11 +382,19 @@ func openAppDB(cfg *DBConfig, logger Logger) (*sql.DB, error) {
 	if cfg.Driver != "sqlite" && cfg.Driver != "" {
 		return nil, fmt.Errorf("only sqlite supported in this SDK; got %q", cfg.Driver)
 	}
-	dir := filepath.Dir(cfg.Path)
+	// DB_PATH env wins over the manifest's path. The platform sets
+	// it per-install to avoid two installs of the same app writing
+	// to the manifest's hard-coded path. The testkit also relies on
+	// this so spawned sidecars in tests don't share /data/<app>.db.
+	path := cfg.Path
+	if v := os.Getenv("DB_PATH"); v != "" {
+		path = v
+	}
+	dir := filepath.Dir(path)
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		return nil, err
 	}
-	db, err := sql.Open("sqlite", "file:"+cfg.Path+"?_journal_mode=WAL&_busy_timeout=5000")
+	db, err := sql.Open("sqlite", "file:"+path+"?_journal_mode=WAL&_busy_timeout=5000")
 	if err != nil {
 		return nil, err
 	}
