@@ -84,7 +84,6 @@ type Provides struct {
 	MCPTools        []MCPToolSpec     `yaml:"mcp_tools" json:"mcp_tools"`
 	PromptFragments []PromptFragment  `yaml:"prompt_fragments" json:"prompt_fragments"`
 	UIPanels        []UIPanel         `yaml:"ui_panels" json:"ui_panels"`
-	UIPages         []UIPage          `yaml:"ui_pages" json:"ui_pages"`
 	UIApp           *UIApp            `yaml:"ui_app,omitempty" json:"ui_app,omitempty"`
 	Channels        []ChannelSpec     `yaml:"channels" json:"channels"`
 	Workers         []WorkerSpec      `yaml:"workers" json:"workers"`
@@ -112,22 +111,22 @@ type PromptFragment struct {
 	Position string `yaml:"position" json:"position"` // directive_prefix | directive_suffix | section
 }
 
-// UIPanel is a UMD bundle mounted into a fixed slot in Apteva's
-// dashboard (first-party trust required).
+// UIPanel is mounted into a fixed slot of Apteva's dashboard. The
+// host renders the panel — first-party panels are React components
+// dynamically resolved by app name, third-party panels fall back to
+// an iframe served from the sidecar at Entry. Either way the panel
+// inherits the host's auth + project context via props.
+//
+// Slots:
+//   project.page    — sidebar entry + full-pane page scoped to a project
+//   instance.tab    — full-pane tab inside the agent detail page
+//   instance.status — thin status strip on the agent detail header
+//   settings.app    — embedded into the Apps tab's per-install detail
 type UIPanel struct {
-	Slot  string `yaml:"slot" json:"slot"`   // settings.app | instance.tab | sidebar.widget
+	Slot  string `yaml:"slot" json:"slot"`
 	Label string `yaml:"label" json:"label"`
 	Icon  string `yaml:"icon" json:"icon"`
-	Entry string `yaml:"entry" json:"entry"` // path served by sidecar (e.g. /ui/AppPanel.umd.js)
-}
-
-// UIPage adds a top-level nav entry; iframe-mounted under Apteva's
-// frame so third-party UIs are sandboxed.
-type UIPage struct {
-	Path  string `yaml:"path" json:"path"`
-	Label string `yaml:"label" json:"label"`
-	Icon  string `yaml:"icon" json:"icon"`
-	Entry string `yaml:"entry" json:"entry"` // path the iframe loads
+	Entry string `yaml:"entry" json:"entry"` // sidecar path used as iframe fallback
 }
 
 // UIApp declares a standalone, own-origin UI served at a Traefik
