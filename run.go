@@ -326,6 +326,25 @@ func (h *mcpHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	switch req.Method {
+	case "initialize":
+		// MCP handshake — clients (apteva-core's MCP transport
+		// included) send this first and refuse to load tools when
+		// the server returns -32601. Reply with the standard
+		// initialize response so tools/list works on the next call.
+		writeMCP(w, req.ID, map[string]any{
+			"protocolVersion": "2024-11-05",
+			"capabilities":    map[string]any{"tools": map[string]any{"listChanged": false}},
+			"serverInfo": map[string]any{
+				"name":    h.ctx.Manifest().Name,
+				"version": h.ctx.Manifest().Version,
+			},
+		})
+
+	case "notifications/initialized":
+		// Notification, no response expected. Some clients send it
+		// after `initialize`; just ack with an empty success.
+		writeMCP(w, req.ID, map[string]any{})
+
 	case "tools/list":
 		out := make([]map[string]any, 0, len(h.tools))
 		for _, t := range h.tools {
