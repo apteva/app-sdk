@@ -54,10 +54,17 @@ func NewAppCtx(t *testing.T, manifestPath string, opts ...Option) *sdk.AppCtx {
 	// Open in-memory SQLite. Each call gets its own pool — the shared
 	// cache mode would let other tests in the same process see each
 	// other's tables, which we don't want.
+	//
+	// Cap the pool at one connection: with `:memory:` every fresh
+	// connection in the pool gets its OWN private database, so a
+	// nested query (or even a sequential one routed to a different
+	// pooled connection) will see an empty schema. SetMaxOpenConns(1)
+	// pins everything to the same connection that ran the migrations.
 	db, err := sql.Open("sqlite", ":memory:?_journal_mode=WAL&_busy_timeout=2000")
 	if err != nil {
 		t.Fatalf("testkit: open sqlite: %v", err)
 	}
+	db.SetMaxOpenConns(1)
 	if err := db.Ping(); err != nil {
 		t.Fatalf("testkit: ping sqlite: %v", err)
 	}
