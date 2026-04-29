@@ -445,8 +445,18 @@ func openAppDB(cfg *DBConfig, logger Logger) (*sql.DB, error) {
 	if err := db.Ping(); err != nil {
 		return nil, err
 	}
-	if cfg.Migrations != "" {
-		if err := runMigrations(db, cfg.Migrations, logger); err != nil {
+	migrationsDir := cfg.Migrations
+	// APTEVA_MIGRATIONS_DIR overrides the manifest path the same way
+	// DB_PATH overrides cfg.Path. The platform points it at the absolute
+	// migrations dir inside the cloned source tree so apps don't have to
+	// know where their source landed on disk — relative manifest paths
+	// like "migrations/" only work when CWD happens to be the source
+	// dir, which it isn't for spawned sidecars.
+	if v := os.Getenv("APTEVA_MIGRATIONS_DIR"); v != "" {
+		migrationsDir = v
+	}
+	if migrationsDir != "" {
+		if err := runMigrations(db, migrationsDir, logger); err != nil {
 			return nil, err
 		}
 	}
