@@ -160,6 +160,16 @@ func mountFrameworkRoutes(mux *http.ServeMux, app App, ctx *AppCtx) {
 		_, _ = w.Write([]byte(`{"ok":true}`))
 	})
 
+	// Live manifest — apteva-server polls this so the dashboard's
+	// "update available" detector can see the running sidecar's version
+	// rather than the snapshot frozen in apps.manifest_json at install
+	// time. Same shape as the parsed manifest stored server-side.
+	mux.HandleFunc("/manifest", func(w http.ResponseWriter, _ *http.Request) {
+		m := app.Manifest()
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(&m)
+	})
+
 	// Static UI bundle. The default lookup is ./ui; apps that ship UI
 	// override by setting APTEVA_UI_DIR.
 	uiDir := os.Getenv("APTEVA_UI_DIR")
