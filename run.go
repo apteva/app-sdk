@@ -68,6 +68,7 @@ func Run(app App) {
 		platform: platform,
 		logger:   logger,
 		cancel:   cancelCh,
+		emitter:  newHTTPEmitter(os.Getenv("APTEVA_GATEWAY_URL"), os.Getenv("APTEVA_APP_TOKEN"), logger),
 	}
 
 	if err := app.OnMount(ctx); err != nil {

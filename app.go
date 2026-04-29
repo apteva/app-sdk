@@ -111,6 +111,7 @@ type AppCtx struct {
 	platform PlatformClient
 	logger   Logger
 	cancel   <-chan struct{}
+	emitter  Emitter
 }
 
 // AppDB is the app's private database handle, opened by the framework
@@ -140,6 +141,33 @@ func (c *AppCtx) Logger() Logger { return c.logger }
 // Done returns a channel that closes when the platform asks the
 // sidecar to shut down. Long-running workers should select on it.
 func (c *AppCtx) Done() <-chan struct{} { return c.cancel }
+
+// Emit publishes an event onto the platform's app-event bus. Topic is
+// app-relative (e.g. "file.added") — the platform stamps the app
+// prefix from the install token before fanning out. Data must be
+// JSON-encodable; pass nil if the topic alone is enough signal.
+//
+// Fire-and-forget: a 100ms timeout caps the publish, errors are
+// logged but never bubbled to the caller. UI fanout is best-effort
+// and the app's own DB is the source of truth — a missed event is a
+// reconnect-with-since= away from being recovered by the dashboard.
+//
+// Safe to call from any goroutine. Safe to call when no subscribers
+// are connected (the platform's ring buffer holds the last 256
+// events per (app, project) for fast reconnect replay).
+func (c *AppCtx) Emit(topic string, data any) {
+	if c == nil || c.emitter == nil {
+		return
+	}
+	c.emitter.Emit(topic, data)
+}
+
+// Emitter is the indirection between AppCtx and the HTTP-based emit
+// implementation in run.go. Exposed so app-sdk/testkit can stub it
+// with an in-memory recorder for assertions.
+type Emitter interface {
+	Emit(topic string, data any)
+}
 
 // NewAppCtxForTest constructs an *AppCtx for use by the testkit
 // package and its callers. Production code never needs this — the
