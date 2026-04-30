@@ -83,7 +83,7 @@ func NewAppCtx(t *testing.T, manifestPath string, opts ...Option) *sdk.AppCtx {
 	}
 
 	cfg := sdk.Config(c.cfg)
-	ctx := sdk.NewAppCtxForTest(manifest, db, cfg, nil, nil)
+	ctx := sdk.NewAppCtxForTest(manifest, db, cfg, c.platform, nil)
 	if c.emitter != nil {
 		ctx.SetEmitter(c.emitter)
 	}

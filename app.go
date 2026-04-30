@@ -196,16 +196,32 @@ func (c *AppCtx) IntegrationFor(role string) *BoundIntegration {
 			return nil
 		}
 		if bound.Kind == "app" {
-			// Resolve install_id → app name. Read from /whoami's
-			// extra metadata when populated, or accept the caller
-			// will look it up via PlatformAPI.
 			bound.InstallID = int64(v)
-			// AppName resolution is best-effort here; if the platform
-			// extended /whoami to include a roles map this gets filled
-			// in. For now consumers can use ListConnections / a future
-			// /apps/:id endpoint to resolve it.
+			// AppName resolution: best-effort GetInstance lookup.
+			// Falls through with empty AppName when the platform
+			// doesn't have a fast path; consumers fall back to the
+			// install id, which is what authorization gates on
+			// anyway.
+			if inst, err := c.platform.GetInstance(int64(v)); err == nil && inst != nil {
+				bound.AppName = inst.Name
+			}
+			// kind=app deps usually call CallApp(appName) — and
+			// the bound app's display name is more useful than its
+			// numeric id for that. Most apps in practice have a
+			// stable known name (storage, media, etc.) and the
+			// caller passes the literal string anyway.
 		} else {
 			bound.ConnectionID = int64(v)
+			// Resolve the connection's app_slug so app code can do
+			// provider-specific normalization without a separate
+			// GetConnection round-trip. This is one /api/apps/callback/
+			// connections/:id call per IntegrationFor invocation;
+			// ToolFor uses it to map logical capabilities to upstream
+			// tool names. Best-effort — leave AppSlug empty on error
+			// and let app code fall back to its own defaults.
+			if conn, err := c.platform.GetConnection(int64(v)); err == nil && conn != nil {
+				bound.AppSlug = conn.AppSlug
+			}
 		}
 	default:
 		return nil
