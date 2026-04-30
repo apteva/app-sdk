@@ -3,6 +3,7 @@ package sdk
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"net/http"
 )
 
@@ -142,6 +143,120 @@ func (c *AppCtx) Logger() Logger { return c.logger }
 // sidecar to shut down. Long-running workers should select on it.
 func (c *AppCtx) Done() <-chan struct{} { return c.cancel }
 
+// IntegrationFor returns the binding for a role declared in the
+// manifest's requires.integrations. Returns nil when:
+//
+//   - the role isn't declared in the manifest (caller bug)
+//   - the role is declared but the operator didn't bind it (optional
+//     dep skipped, or required dep install in flight)
+//   - the bound target was uninstalled (status=degraded)
+//
+// Apps should null-check on every call and degrade gracefully when
+// nil — that's the whole point of optional deps. Required deps
+// being nil means the install is misconfigured; surface a clean
+// error to the agent rather than crashing.
+//
+// The lookup hits the platform's /whoami once per AppCtx and caches
+// the bindings for the process lifetime. Since bindings can change
+// at runtime (operator rebinds, optional dep newly available), the
+// cache TTL is short — sub-second — so the next call after a
+// rebind picks up the change without a sidecar restart.
+func (c *AppCtx) IntegrationFor(role string) *BoundIntegration {
+	if c == nil || c.platform == nil {
+		return nil
+	}
+	bindings, manifest := c.bindingsAndManifest()
+	if manifest == nil {
+		return nil
+	}
+	var dep *IntegrationDep
+	for i := range manifest.Requires.Integrations {
+		if manifest.Requires.Integrations[i].Role == role {
+			dep = &manifest.Requires.Integrations[i]
+			break
+		}
+	}
+	if dep == nil {
+		return nil
+	}
+	raw, ok := bindings[role]
+	if !ok || raw == nil {
+		return nil
+	}
+	bound := &BoundIntegration{
+		Role: role,
+		Kind: dep.Kind,
+	}
+	if bound.Kind == "" {
+		bound.Kind = "integration"
+	}
+	switch v := raw.(type) {
+	case float64:
+		if v <= 0 {
+			return nil
+		}
+		if bound.Kind == "app" {
+			// Resolve install_id → app name. Read from /whoami's
+			// extra metadata when populated, or accept the caller
+			// will look it up via PlatformAPI.
+			bound.InstallID = int64(v)
+			// AppName resolution is best-effort here; if the platform
+			// extended /whoami to include a roles map this gets filled
+			// in. For now consumers can use ListConnections / a future
+			// /apps/:id endpoint to resolve it.
+		} else {
+			bound.ConnectionID = int64(v)
+		}
+	default:
+		return nil
+	}
+	// Build ToolFor closure that maps logical capability → upstream tool name
+	// per the manifest's tools map.
+	tools := dep.Tools
+	bound.ToolFor = func(capability string) string {
+		if tools == nil {
+			return capability
+		}
+		if t, ok := tools[capability]; ok {
+			return t
+		}
+		return capability
+	}
+	return bound
+}
+
+// BoundIntegration describes a role's currently-bound target. See
+// AppCtx.IntegrationFor.
+type BoundIntegration struct {
+	Role         string
+	Kind         string // "integration" | "app"
+	ConnectionID int64  // when Kind=integration
+	InstallID    int64  // when Kind=app
+	AppName      string // when Kind=app — resolved best-effort
+	AppSlug      string // when Kind=integration — fetched on demand from PlatformAPI.GetConnection
+	// ToolFor maps a logical capability ("image.generate") to the
+	// upstream tool name ("generate_image" for openai-api). Falls
+	// back to the capability string when no mapping is declared.
+	ToolFor func(capability string) string
+}
+
+// bindingsAndManifest fetches the install's bindings + manifest. The
+// httpPlatformClient caches both for the AppCtx's lifetime; tests
+// can stub via a custom PlatformClient.
+func (c *AppCtx) bindingsAndManifest() (map[string]any, *Manifest) {
+	if c.manifest == nil || c.platform == nil {
+		return nil, c.manifest
+	}
+	// httpPlatformClient.WhoAmI returns identity + bindings. Pull
+	// fresh on every call — the cache + revalidation lives in the
+	// platform client itself, not here.
+	id, err := c.platform.WhoAmI()
+	if err != nil || id == nil {
+		return nil, c.manifest
+	}
+	return id.Bindings, c.manifest
+}
+
 // Emit publishes an event onto the platform's app-event bus. Topic is
 // app-relative (e.g. "file.added") — the platform stamps the app
 // prefix from the install token before fanning out. Data must be
@@ -249,6 +364,28 @@ type PlatformClient interface {
 
 	// Self
 	WhoAmI() (*InstallIdentity, error)
+
+	// Integration execution. Calls a tool on a connection bound to
+	// this install at install time. Credentials never leave the
+	// platform; the response shape mirrors /connections/:id/execute.
+	// Authorization: the install must declare
+	// platform.connections.execute and connID must be in the
+	// install's integration_bindings.
+	ExecuteIntegrationTool(connID int64, tool string, input map[string]any) (*ExecuteResult, error)
+
+	// App-to-app call. Invokes an MCP tool on a sibling app the
+	// install was bound to. Authorization: the install must declare
+	// platform.apps.call and appName must be in a kind=app binding.
+	CallApp(appName, tool string, input map[string]any) (json.RawMessage, error)
+}
+
+// ExecuteResult mirrors apteva-server's response shape for integration
+// tool executions. data is the upstream API's response body parsed
+// from JSON; status is the HTTP status the upstream returned.
+type ExecuteResult struct {
+	Success bool            `json:"success"`
+	Status  int             `json:"status"`
+	Data    json.RawMessage `json:"data"`
 }
 
 type PlatformConnection struct {
@@ -276,9 +413,14 @@ type PlatformInstance struct {
 // WhoAmI(). Useful when an app wants to log its own install id without
 // re-reading env vars.
 type InstallIdentity struct {
-	AppName    string         `json:"app_name"`
-	Version    string         `json:"version"`
-	InstallID  int64          `json:"install_id"`
-	ProjectID  string         `json:"project_id"`
-	Permissions []Permission `json:"permissions"`
+	AppName     string         `json:"app_name"`
+	Version     string         `json:"version"`
+	InstallID   int64          `json:"install_id"`
+	ProjectID   string         `json:"project_id"`
+	Permissions []Permission   `json:"permissions"`
+	// Bindings carries the install's integration_bindings JSON —
+	// keys are role names declared in the manifest, values are
+	// connection_id (kind=integration) or install_id (kind=app),
+	// or null when the operator declined an optional dep.
+	Bindings map[string]any `json:"bindings"`
 }

@@ -62,6 +62,67 @@ type Requires struct {
 	Permissions       []Permission        `yaml:"permissions" json:"permissions"`
 	MCPToolsAtRuntime []string            `yaml:"mcp_tools_at_runtime" json:"mcp_tools_at_runtime"`
 	Apps              []RequiredAppRef    `yaml:"apps,omitempty" json:"apps,omitempty"`
+	// Integrations declares roles this app fills with either an
+	// integration connection or another Apteva app. The operator
+	// binds each role at install time; the app reads the binding
+	// at runtime via ctx.IntegrationFor(role) and never sees raw
+	// credentials. See IntegrationDep below.
+	Integrations []IntegrationDep `yaml:"integrations,omitempty" json:"integrations,omitempty"`
+}
+
+// IntegrationDep declares one role the app needs filled. Two kinds:
+//
+//   kind: integration  — bind a connection (per-project credentials
+//                        for some upstream like OpenAI). The platform
+//                        executes tools server-side via the existing
+//                        integration runner; the app never holds the
+//                        secret.
+//
+//   kind: app          — bind another Apteva app installed in the
+//                        same project. The platform proxies MCP calls
+//                        from this app to the target sidecar; auth is
+//                        the binding itself.
+//
+// Required deps block install until bound. Optional deps surface as
+// opt-in checkboxes; the app degrades gracefully when the role is
+// unbound (ctx.IntegrationFor returns nil). Late binding is supported:
+// when a compatible target appears later, the install's UI prompts
+// the operator to wire it up — no app restart needed.
+type IntegrationDep struct {
+	// Role is app-defined; doesn't have to match anything upstream.
+	// It's the key the app reads via ctx.IntegrationFor("role").
+	Role string `yaml:"role" json:"role"`
+	// Kind selects the resolution path. Default "integration".
+	Kind string `yaml:"kind,omitempty" json:"kind,omitempty"` // "integration" | "app"
+	// Required=true blocks the install until bound. False makes
+	// it an opt-in.
+	Required bool `yaml:"required,omitempty" json:"required,omitempty"`
+	// CompatibleSlugs lists upstream integration slugs (matching
+	// integrations/src/apps/<slug>.json) that can fill this role.
+	// Used when kind=integration. The install picker filters to
+	// connections whose app_slug is in this list.
+	CompatibleSlugs []string `yaml:"compatible_slugs,omitempty" json:"compatible_slugs,omitempty"`
+	// CompatibleAppNames lists the apps that can fill this role
+	// when kind=app. The install picker filters to running installs
+	// whose app name is in this list.
+	CompatibleAppNames []string `yaml:"compatible_app_names,omitempty" json:"compatible_app_names,omitempty"`
+	// Capabilities is informational — describes the abstract things
+	// this role does, e.g. ["image.generate", "image.edit"]. Future
+	// versions will use this for capability-based matching across
+	// providers; v0.1 just renders it in the install picker so the
+	// operator knows what they're signing up for.
+	Capabilities []string `yaml:"capabilities,omitempty" json:"capabilities,omitempty"`
+	// Tools maps logical capability → upstream tool name for this
+	// role. Lets the same app code work across providers without
+	// branching on app_slug. e.g. for image.generate, openai-api
+	// uses "generate_image" and replicate uses "predictions_create".
+	Tools map[string]string `yaml:"tools,omitempty" json:"tools,omitempty"`
+	// Hint is shown in the install picker when no compatible target
+	// exists yet, nudging the operator to install one.
+	Hint string `yaml:"hint,omitempty" json:"hint,omitempty"`
+	// Label is the human-readable role name for the install UI.
+	// Falls back to Role when empty.
+	Label string `yaml:"label,omitempty" json:"label,omitempty"`
 }
 
 // RequiredAppRef declares a dependency on another Apteva app. The
@@ -277,10 +338,12 @@ const (
 	PermNetEgress            Permission = "net.egress"
 	PermConnectionsRead      Permission = "platform.connections.read"
 	PermConnectionsWrite     Permission = "platform.connections.write"
+	PermConnectionsExecute   Permission = "platform.connections.execute"
 	PermInstancesRead        Permission = "platform.instances.read"
 	PermInstancesWrite       Permission = "platform.instances.write"
 	PermMCPAttach            Permission = "platform.mcp.attach"
 	PermChannelsSend         Permission = "platform.channels.send"
+	PermAppsCall             Permission = "platform.apps.call"
 	PermFSReadShared         Permission = "fs.read.shared"
 	PermFSWriteShared        Permission = "fs.write.shared"
 )
@@ -290,9 +353,9 @@ const (
 func AllPermissions() []Permission {
 	return []Permission{
 		PermDBWriteApp, PermNetEgress,
-		PermConnectionsRead, PermConnectionsWrite,
+		PermConnectionsRead, PermConnectionsWrite, PermConnectionsExecute,
 		PermInstancesRead, PermInstancesWrite,
-		PermMCPAttach, PermChannelsSend,
+		PermMCPAttach, PermChannelsSend, PermAppsCall,
 		PermFSReadShared, PermFSWriteShared,
 	}
 }

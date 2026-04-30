@@ -85,6 +85,30 @@ func (c *httpPlatformClient) WhoAmI() (*InstallIdentity, error) {
 	return &out, nil
 }
 
+func (c *httpPlatformClient) ExecuteIntegrationTool(connID int64, tool string, input map[string]any) (*ExecuteResult, error) {
+	if input == nil {
+		input = map[string]any{}
+	}
+	body := map[string]any{"tool": tool, "input": input}
+	var out ExecuteResult
+	if err := c.post("/api/apps/callback/integrations/"+strconv.FormatInt(connID, 10)+"/execute", body, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+func (c *httpPlatformClient) CallApp(appName, tool string, input map[string]any) (json.RawMessage, error) {
+	if input == nil {
+		input = map[string]any{}
+	}
+	body := map[string]any{"tool": tool, "input": input}
+	var out json.RawMessage
+	if err := c.post("/api/apps/callback/apps/"+appName+"/call", body, &out); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // --- low-level helpers -------------------------------------------------------
 
 func (c *httpPlatformClient) get(path string, out any) error {
