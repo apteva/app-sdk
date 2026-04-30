@@ -12,7 +12,8 @@ type config struct {
 	projectID string
 	env       map[string]string
 	cfg       map[string]string
-	port      int // sidecar only; 0 = pick free
+	port      int           // sidecar only; 0 = pick free
+	emitter   *EmitRecorder // when set, attached to the resulting AppCtx
 }
 
 // WithProjectID sets APTEVA_PROJECT_ID for the test fixture. For
@@ -54,6 +55,21 @@ func WithConfig(values map[string]string) Option {
 // known URL.
 func WithPort(port int) Option {
 	return func(c *config) { c.port = port }
+}
+
+// WithEmitter attaches a recorder to the AppCtx so tests can assert
+// what was published via ctx.Emit(). Without this option, Emit() is
+// a no-op in tests (production wires an HTTP emitter; tests don't
+// have a server). Pass the same recorder you'll inspect later:
+//
+//	rec := tk.NewEmitRecorder()
+//	ctx := tk.NewAppCtx(t, "apteva.yaml", tk.WithEmitter(rec))
+//	... call code that emits ...
+//	if got := rec.EventsByTopic("file.added"); len(got) != 1 {
+//	    t.Fatalf("expected one file.added emit, got %d", len(got))
+//	}
+func WithEmitter(rec *EmitRecorder) Option {
+	return func(c *config) { c.emitter = rec }
 }
 
 func resolveOptions(opts []Option) *config {

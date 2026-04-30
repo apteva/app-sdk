@@ -169,6 +169,18 @@ type Emitter interface {
 	Emit(topic string, data any)
 }
 
+// SetEmitter swaps the AppCtx's event emitter — only valid for
+// test-built contexts (NewAppCtxForTest). Production code never
+// needs this; the framework wires the HTTP emitter automatically.
+// Unexported field access through this method keeps the testkit
+// from reaching into unexported state directly.
+func (c *AppCtx) SetEmitter(e Emitter) {
+	if c == nil {
+		return
+	}
+	c.emitter = e
+}
+
 // NewAppCtxForTest constructs an *AppCtx for use by the testkit
 // package and its callers. Production code never needs this — the
 // framework builds AppCtx in Run(). Exposed so app-sdk/testkit can

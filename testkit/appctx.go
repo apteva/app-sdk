@@ -83,7 +83,11 @@ func NewAppCtx(t *testing.T, manifestPath string, opts ...Option) *sdk.AppCtx {
 	}
 
 	cfg := sdk.Config(c.cfg)
-	return sdk.NewAppCtxForTest(manifest, db, cfg, nil, nil)
+	ctx := sdk.NewAppCtxForTest(manifest, db, cfg, nil, nil)
+	if c.emitter != nil {
+		ctx.SetEmitter(c.emitter)
+	}
+	return ctx
 }
 
 // applyMigrations reads every *.sql in dir (sorted) and execs each
