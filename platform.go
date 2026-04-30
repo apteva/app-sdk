@@ -15,10 +15,17 @@ import (
 // apteva-server's /api/apps/callback/* surface using the per-install
 // APTEVA_APP_TOKEN. The platform validates the token + checks the
 // caller's declared permissions on every call.
+//
+// Two HTTP clients: `client` for fast metadata endpoints (whoami,
+// connection lookup, event send) at 30s; `slowClient` for callbacks
+// that proxy upstream API calls or other apps' tools, where the wire
+// time is bounded by the platform's own per-tool timeout — generous
+// here, restrictive at the next hop.
 type httpPlatformClient struct {
-	baseURL string
-	token   string
-	client  *http.Client
+	baseURL    string
+	token      string
+	client     *http.Client
+	slowClient *http.Client
 }
 
 func newHTTPPlatformClient(baseURL, token string) PlatformClient {
@@ -27,7 +34,8 @@ func newHTTPPlatformClient(baseURL, token string) PlatformClient {
 	}
 	return &httpPlatformClient{
 		baseURL: baseURL, token: token,
-		client: &http.Client{Timeout: 30 * time.Second},
+		client:     &http.Client{Timeout: 30 * time.Second},
+		slowClient: &http.Client{Timeout: 10 * time.Minute},
 	}
 }
 
@@ -91,7 +99,7 @@ func (c *httpPlatformClient) ExecuteIntegrationTool(connID int64, tool string, i
 	}
 	body := map[string]any{"tool": tool, "input": input}
 	var out ExecuteResult
-	if err := c.post("/api/apps/callback/integrations/"+strconv.FormatInt(connID, 10)+"/execute", body, &out); err != nil {
+	if err := c.postWith(c.slowClient, "/api/apps/callback/integrations/"+strconv.FormatInt(connID, 10)+"/execute", body, &out); err != nil {
 		return nil, err
 	}
 	return &out, nil
@@ -103,7 +111,7 @@ func (c *httpPlatformClient) CallApp(appName, tool string, input map[string]any)
 	}
 	body := map[string]any{"tool": tool, "input": input}
 	var out json.RawMessage
-	if err := c.post("/api/apps/callback/apps/"+appName+"/call", body, &out); err != nil {
+	if err := c.postWith(c.slowClient, "/api/apps/callback/apps/"+appName+"/call", body, &out); err != nil {
 		return nil, err
 	}
 	return out, nil
@@ -126,6 +134,10 @@ func (c *httpPlatformClient) get(path string, out any) error {
 }
 
 func (c *httpPlatformClient) post(path string, body any, out any) error {
+	return c.postWith(c.client, path, body, out)
+}
+
+func (c *httpPlatformClient) postWith(client *http.Client, path string, body any, out any) error {
 	var br io.Reader
 	if body != nil {
 		buf, err := json.Marshal(body)
@@ -137,7 +149,7 @@ func (c *httpPlatformClient) post(path string, body any, out any) error {
 	req, _ := http.NewRequest(http.MethodPost, c.baseURL+path, br)
 	req.Header.Set("Content-Type", "application/json")
 	c.addAuth(req)
-	resp, err := c.client.Do(req)
+	resp, err := client.Do(req)
 	if err != nil {
 		return err
 	}
