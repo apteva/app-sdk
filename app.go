@@ -393,6 +393,48 @@ type PlatformClient interface {
 	// install was bound to. Authorization: the install must declare
 	// platform.apps.call and appName must be in a kind=app binding.
 	CallApp(appName, tool string, input map[string]any) (json.RawMessage, error)
+
+	// App-initiated OAuth. Creates a pending connection owned by this
+	// install (created_via=app_install, owner_app_install_id=<this>),
+	// returns the authorize URL the app should hand the user, and the
+	// connection id to poll. After the human completes the dance,
+	// apteva-server 302s the browser back to ReturnURL with
+	// ?conn_id=<id>&status=ok. Authorization: install must declare
+	// platform.oauth.start.
+	StartOAuth(req OAuthStartRequest) (*OAuthStartResult, error)
+
+	// Disconnect a connection this install owns. Authorization: install
+	// must declare platform.connections.manage AND the connection must
+	// have owner_app_install_id matching this install (apps cannot
+	// touch operator-managed connections or other apps' connections).
+	DisconnectConnection(connID int64) error
+
+	// List connections owned by this install. Returns only rows where
+	// owner_app_install_id matches; never operator rows. Authorization:
+	// install must declare platform.connections.read or .manage.
+	ListOwnedConnections() ([]PlatformConnection, error)
+}
+
+// OAuthStartRequest is the body for PlatformClient.StartOAuth.
+type OAuthStartRequest struct {
+	// IntegrationSlug — catalog slug ("twitter-api", "facebook-graph").
+	IntegrationSlug string `json:"integration_slug"`
+	// ReturnURL — where the platform 302s the browser after the OAuth
+	// callback completes. Must be on the same host as the dashboard;
+	// usually a path under the app's own /api/apps/<name>/... surface.
+	ReturnURL string `json:"return_url"`
+	// Name — a display label for the connection (e.g. "Twitter for
+	// @marcoschwartz"). Optional; falls back to the integration name.
+	Name string `json:"name,omitempty"`
+	// ProjectID — scope. Defaults to the install's project when empty.
+	ProjectID string `json:"project_id,omitempty"`
+}
+
+// OAuthStartResult is the response from PlatformClient.StartOAuth.
+type OAuthStartResult struct {
+	ConnectionID int64  `json:"connection_id"`
+	AuthorizeURL string `json:"authorize_url"`
+	ExpiresAt    string `json:"expires_at"`
 }
 
 // ExecuteResult mirrors apteva-server's response shape for integration

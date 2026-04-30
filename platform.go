@@ -117,6 +117,26 @@ func (c *httpPlatformClient) CallApp(appName, tool string, input map[string]any)
 	return out, nil
 }
 
+func (c *httpPlatformClient) StartOAuth(req OAuthStartRequest) (*OAuthStartResult, error) {
+	var out OAuthStartResult
+	if err := c.post("/api/apps/callback/oauth/start", req, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+func (c *httpPlatformClient) DisconnectConnection(connID int64) error {
+	return c.post("/api/apps/callback/connections/"+strconv.FormatInt(connID, 10)+"/disconnect", nil, nil)
+}
+
+func (c *httpPlatformClient) ListOwnedConnections() ([]PlatformConnection, error) {
+	var out []PlatformConnection
+	if err := c.get("/api/apps/callback/connections?owned=true", &out); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // --- low-level helpers -------------------------------------------------------
 
 func (c *httpPlatformClient) get(path string, out any) error {

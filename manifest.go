@@ -346,6 +346,13 @@ const (
 	PermAppsCall             Permission = "platform.apps.call"
 	PermFSReadShared         Permission = "fs.read.shared"
 	PermFSWriteShared        Permission = "fs.write.shared"
+	// PermOAuthStart lets an app initiate an OAuth dance against any
+	// integration in the catalog and store the resulting connection
+	// under its own ownership (created_via=app_install). Bundled with
+	// platform.connections.manage so the app can list / disconnect /
+	// refresh the connections it owns.
+	PermOAuthStart           Permission = "platform.oauth.start"
+	PermConnectionsManage    Permission = "platform.connections.manage"
 )
 
 // AllPermissions returns the full taxonomy — used by the dashboard's
@@ -357,6 +364,7 @@ func AllPermissions() []Permission {
 		PermInstancesRead, PermInstancesWrite,
 		PermMCPAttach, PermChannelsSend, PermAppsCall,
 		PermFSReadShared, PermFSWriteShared,
+		PermOAuthStart, PermConnectionsManage,
 	}
 }
 
