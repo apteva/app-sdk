@@ -24,11 +24,12 @@ import (
 // Build artefacts are cached per-process so spawning many sidecars
 // doesn't repeatedly invoke `go build`.
 type Sidecar struct {
-	url     string
-	cmd     *exec.Cmd
-	dataDir string
-	token   string
-	t       *testing.T
+	url        string
+	cmd        *exec.Cmd
+	dataDir    string
+	token      string
+	gatewayURL string // when WithDependency was used; "" otherwise
+	t          *testing.T
 }
 
 // SpawnSidecar builds (if needed) and starts the binary at appDir.
@@ -41,6 +42,13 @@ type Sidecar struct {
 func SpawnSidecar(t *testing.T, appDir string, opts ...Option) *Sidecar {
 	t.Helper()
 	c := resolveOptions(opts)
+
+	// Spawn declared dependencies FIRST. Each dep is spawned via this
+	// same SpawnSidecar (without its own deps) so they get the same
+	// build cache + healthcheck guarantees. The returned gateway URL
+	// is injected as APTEVA_GATEWAY_URL on the main sidecar so its
+	// cross-app HTTP code paths reach real dep binaries.
+	gatewayURL := spawnDependencies(t, c.projectID, c.deps)
 
 	bin := buildSidecar(t, appDir)
 	port := c.port
@@ -57,6 +65,19 @@ func SpawnSidecar(t *testing.T, appDir string, opts ...Option) *Sidecar {
 		"APTEVA_PROJECT_ID="+c.projectID,
 		"DB_PATH="+filepath.Join(dataDir, "app.db"),
 	)
+	// Gateway URL is set automatically when deps are declared. Tests
+	// that pass WithEnv("APTEVA_GATEWAY_URL", ...) directly (e.g. for
+	// mock-based setups) still win — c.env is applied last.
+	if gatewayURL != "" {
+		env = append(env,
+			"APTEVA_GATEWAY_URL="+gatewayURL,
+			// storageclient-style cross-app callers prefer
+			// OUTBOUND_TOKEN; falling back to APP_TOKEN is fine
+			// (the gateway swaps the header anyway), but setting
+			// it here matches production wiring more closely.
+			"APTEVA_OUTBOUND_TOKEN="+token,
+		)
+	}
 	if cfgJSON, err := json.Marshal(c.cfg); err == nil {
 		env = append(env, "APTEVA_APP_CONFIG="+string(cfgJSON))
 	}
@@ -78,11 +99,12 @@ func SpawnSidecar(t *testing.T, appDir string, opts ...Option) *Sidecar {
 
 	url := fmt.Sprintf("http://127.0.0.1:%d", port)
 	sc := &Sidecar{
-		url:     url,
-		cmd:     cmd,
-		dataDir: dataDir,
-		token:   token,
-		t:       t,
+		url:        url,
+		cmd:        cmd,
+		dataDir:    dataDir,
+		token:      token,
+		gatewayURL: gatewayURL,
+		t:          t,
 	}
 
 	if err := waitHealthy(url+"/health", 10*time.Second); err != nil {
@@ -109,6 +131,12 @@ func (s *Sidecar) URL() string { return s.url }
 // Token returns the auth bearer for this sidecar. Pre-filled into
 // every helper-issued request; expose for raw clients that need it.
 func (s *Sidecar) Token() string { return s.token }
+
+// GatewayURL returns the in-test gateway URL when this sidecar was
+// spawned with declared dependencies, otherwise "". Tests that need
+// to make raw cross-app HTTP calls (mirroring what storageclient.go
+// or similar do in production) post to GatewayURL() + /api/apps/<dep>/...
+func (s *Sidecar) GatewayURL() string { return s.gatewayURL }
 
 // Stop terminates the sidecar early. Cleanup at t.Cleanup runs the
 // same path; calling Stop yourself is optional, useful if you want to
