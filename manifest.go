@@ -145,9 +145,32 @@ type Provides struct {
 	MCPTools        []MCPToolSpec     `yaml:"mcp_tools" json:"mcp_tools"`
 	PromptFragments []PromptFragment  `yaml:"prompt_fragments" json:"prompt_fragments"`
 	UIPanels        []UIPanel         `yaml:"ui_panels" json:"ui_panels"`
+	UIComponents    []UIComponent     `yaml:"ui_components,omitempty" json:"ui_components,omitempty"`
 	UIApp           *UIApp            `yaml:"ui_app,omitempty" json:"ui_app,omitempty"`
 	Channels        []ChannelSpec     `yaml:"channels" json:"channels"`
 	Workers         []WorkerSpec      `yaml:"workers" json:"workers"`
+}
+
+// UIComponent is a small reusable React component the dashboard can
+// mount inline (chat tool attachments, sidebar widgets, etc). Apps
+// describe what they can render; the agent decides when to invoke
+// (via the `respond(components=…)` tool on the chat MCP) for chat
+// surfaces, and the dashboard auto-mounts for slot surfaces.
+//
+// Slots:
+//   chat.message_attachment   — under an agent message in chat
+//   dashboard.project_sidebar — small widget on the project home
+//   tool_details.popover      — when an operator clicks a tool row
+//
+// Slot list is enforced by the platform — components can only render
+// in their declared slots. Components without slots can't be rendered
+// anywhere; they're effectively dead code (intentional: forces apps
+// to be explicit about where their UI shows up).
+type UIComponent struct {
+	Name        string         `yaml:"name" json:"name"`               // kebab-case, scoped under the app
+	Entry       string         `yaml:"entry" json:"entry"`             // sidecar path: "/ui/FileCard.mjs"
+	Slots       []string       `yaml:"slots" json:"slots"`             // allowlist of where it can render
+	PropsSchema map[string]any `yaml:"props_schema,omitempty" json:"props_schema,omitempty"`
 }
 
 // RouteSpec — the app sidecar serves these prefixes; platform reverse-
