@@ -171,6 +171,22 @@ type UIComponent struct {
 	Entry       string         `yaml:"entry" json:"entry"`             // sidecar path: "/ui/FileCard.mjs"
 	Slots       []string       `yaml:"slots" json:"slots"`             // allowlist of where it can render
 	PropsSchema map[string]any `yaml:"props_schema,omitempty" json:"props_schema,omitempty"`
+	// PreviewProps lets the dashboard render a live sample of this
+	// component (in the app's install detail panel) so operators can
+	// see what the agent will surface in chat without having to
+	// trigger a real respond. Optional; when nil the detail panel
+	// skips the preview and just lists the metadata.
+	//
+	// Soft convention for components that need real data to render
+	// (e.g. FileCard fetches a file row by id): recognize a
+	// `preview: true` prop and render synthetic sample state instead
+	// of fetching. Lets a brand-new install with zero data show a
+	// useful preview. Components that don't fetch can ignore the
+	// convention and put real-looking values in preview_props
+	// directly. Components that fetch but ignore the convention
+	// will render a skeleton or tombstone — also informative, just
+	// less polished.
+	PreviewProps map[string]any `yaml:"preview_props,omitempty" json:"preview_props,omitempty"`
 }
 
 // RouteSpec — the app sidecar serves these prefixes; platform reverse-
