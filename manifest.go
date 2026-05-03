@@ -348,14 +348,19 @@ type DBConfig struct {
 }
 
 // ConfigField — a single field in the install-time configuration form
-// the dashboard renders against the user.
+// the dashboard renders against the user. Same schema is reused for
+// after-install settings edits via PUT /api/apps/installs/:id/config.
 type ConfigField struct {
 	Name        string `yaml:"name" json:"name"`
 	Label       string `yaml:"label" json:"label"`
-	Type        string `yaml:"type" json:"type"` // text | password | gdrive_sheet | gdrive_folder | …
+	Type        string `yaml:"type" json:"type"` // text | password | toggle | select | gdrive_sheet | gdrive_folder | …
 	Description string `yaml:"description" json:"description"`
 	Required    bool   `yaml:"required" json:"required"`
 	Default     string `yaml:"default" json:"default"`
+	// Options — closed enum for `type: select`. Each entry is a single
+	// string; the form renders a dropdown and the dashboard validates
+	// that the chosen value is one of these. Ignored for other types.
+	Options []string `yaml:"options,omitempty" json:"options,omitempty"`
 }
 
 // UpgradePolicy is the per-install default; users can override in the
