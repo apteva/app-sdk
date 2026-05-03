@@ -257,7 +257,8 @@ func parseSchedule(s string) (time.Duration, error) {
 // boot and uses it on every callback. Without this, anyone reaching
 // the sidecar's port could call its tools.
 //
-// Two carve-outs let storage-style apps serve signed / public URLs:
+// Three carve-outs let apps serve signed / public URLs / provider
+// webhooks:
 //
 //  1. /health — the orchestrator's liveness probe never has a token.
 //  2. ?sig=… — any GET request with a sig query param falls through
@@ -266,6 +267,13 @@ func parseSchedule(s string) (time.Duration, error) {
 //     URLs (S3 presign, CDN presign, etc.) and lets anonymous chat
 //     users / external links work without leaking the platform
 //     token. The handler MUST verify the sig itself.
+//  3. /webhooks/* — provider-callback endpoints (SES/SNS, Twilio,
+//     Stripe, GitHub, etc.). The provider signs the request payload
+//     with their own scheme (SNS X.509, Twilio HMAC-SHA1, Stripe
+//     signed payload, etc.); the handler MUST verify that signature.
+//     This carve-out exists because external providers don't have
+//     our APTEVA_APP_TOKEN and can't be made to use one — their
+//     authenticity comes from per-provider request signing.
 func withTokenAuth(h http.Handler) http.Handler {
 	expected := os.Getenv("APTEVA_APP_TOKEN")
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -281,6 +289,13 @@ func withTokenAuth(h http.Handler) http.Handler {
 		// Signed-URL pass-through. Only GETs (no mutations); the app
 		// handler verifies the actual sig.
 		if r.Method == http.MethodGet && r.URL.Query().Get("sig") != "" {
+			h.ServeHTTP(w, r)
+			return
+		}
+		// Webhook pass-through. Handler is responsible for verifying
+		// the provider's signature on the payload — see comment block
+		// above.
+		if strings.HasPrefix(r.URL.Path, "/webhooks/") {
 			h.ServeHTTP(w, r)
 			return
 		}
