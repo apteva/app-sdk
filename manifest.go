@@ -149,6 +149,37 @@ type Provides struct {
 	UIApp           *UIApp            `yaml:"ui_app,omitempty" json:"ui_app,omitempty"`
 	Channels        []ChannelSpec     `yaml:"channels" json:"channels"`
 	Workers         []WorkerSpec      `yaml:"workers" json:"workers"`
+	// Skills the app ships — markdown-bodied playbooks the agent
+	// loads on demand to act with this app's expertise. Each entry
+	// becomes one row in the platform's skills table on install,
+	// refreshes on upgrade, cascade-deletes on uninstall.
+	Skills          []Skill           `yaml:"skills,omitempty" json:"skills,omitempty"`
+}
+
+// Skill — a markdown-bodied playbook the agent loads on demand.
+// Mirrors Anthropic's open SKILL.md spec (agentskills.io): metadata
+// at the top (name, description, optional command), body in
+// markdown. Apps can declare the body inline (`body:`) or as a
+// repo-relative path (`body_file: skills/foo.md`); the server
+// resolves body_file to the file's contents at install time and
+// stores the result in the database. After install, the row is the
+// source of truth — no runtime filesystem reads.
+type Skill struct {
+	Name        string         `yaml:"name" json:"name"`
+	Description string         `yaml:"description" json:"description"`
+	// Command — optional slash trigger (e.g. "/storage"). Stored as
+	// the literal command including the leading slash. The agent
+	// runtime (separate task) routes /<command> invocations to this
+	// skill in addition to the description-based match.
+	Command string `yaml:"command,omitempty" json:"command,omitempty"`
+	// Exactly one of Body / BodyFile must be set on install. After
+	// install both fields are unused — the resolved markdown lives
+	// in the skills.body column.
+	Body     string `yaml:"body,omitempty" json:"body,omitempty"`
+	BodyFile string `yaml:"body_file,omitempty" json:"body_file,omitempty"`
+	// Free-form metadata: icon, category, tags. Surfaced verbatim by
+	// the dashboard for filtering / display.
+	Metadata map[string]any `yaml:"metadata,omitempty" json:"metadata,omitempty"`
 }
 
 // UIComponent is a small reusable React component the dashboard can
