@@ -5,6 +5,8 @@ import (
 	"database/sql"
 	"encoding/json"
 	"net/http"
+	"os"
+	"path/filepath"
 )
 
 // App is the single interface every Apteva app implements. Every facet
@@ -138,6 +140,37 @@ func (c *AppCtx) Config() Config { return c.cfg }
 // Logger is a structured logger pre-tagged with the app's name and
 // install id.
 func (c *AppCtx) Logger() Logger { return c.logger }
+
+// DataDir returns the writable per-install directory the platform
+// reserved for this app's persistent files (anything beyond AppDB —
+// uploaded blobs, cloned repos, generated artifacts, …). Apps should
+// route their on-disk state through this instead of hardcoding paths
+// like "/data/foo": that works in container deployments where /data is
+// a volume, but breaks every other host (macOS dev laptops, custom
+// installer paths, anyone running apteva-server outside Docker).
+//
+// Resolution order:
+//
+//  1. APTEVA_DATA_DIR — preferred; the platform sets it to
+//     <persistentRoot>/<install_id>/, the same dir the SDK opens
+//     AppDB in.
+//  2. dirname(DB_PATH) — graceful fallback for older platforms that
+//     ship before APTEVA_DATA_DIR was introduced. Same physical
+//     directory, just derived after the fact.
+//  3. "" — neither is set; the manifest probably has no db block and
+//     the platform spawned without setting APTEVA_DATA_DIR. Apps
+//     needing a writable dir should treat this as a hard error and
+//     refuse to mount, rather than silently picking a default that
+//     won't exist.
+func (c *AppCtx) DataDir() string {
+	if v := os.Getenv("APTEVA_DATA_DIR"); v != "" {
+		return v
+	}
+	if v := os.Getenv("DB_PATH"); v != "" {
+		return filepath.Dir(v)
+	}
+	return ""
+}
 
 // Done returns a channel that closes when the platform asks the
 // sidecar to shut down. Long-running workers should select on it.
