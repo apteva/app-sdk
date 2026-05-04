@@ -11,6 +11,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"gopkg.in/yaml.v3"
@@ -324,12 +325,24 @@ type Runtime struct {
 	Image       string             `yaml:"image" json:"image"`
 	Binaries    map[string]string  `yaml:"binaries" json:"binaries"`     // key: "<os>-<arch>" e.g. "linux-amd64", "darwin-arm64"
 	Source      *SourceSpec        `yaml:"source,omitempty" json:"source,omitempty"`
+	// Bundle — prebuilt static-asset tarball delivery for kind: static.
+	// CI builds dist/, packs it as <name>-<version>.tgz, uploads to a
+	// release; the server downloads, verifies sha256, extracts. Lets
+	// authors ship the build artifact instead of the build toolchain,
+	// so install hosts don't need bun/node. SHA256 is required — an
+	// unverified bundle is a supply-chain hole we're not paying for.
+	Bundle      *BundleSpec        `yaml:"bundle,omitempty" json:"bundle,omitempty"`
 	// StaticDir — only meaningful when Kind == "static". Path inside
 	// the app repo (relative) or absolute on disk where the prebuilt
 	// SPA / asset directory lives. apteva-server serves this as a
 	// path-mounted handler with SPA fallback. The directory must
 	// exist at install time; for `kind: source` apps we'd build it
 	// first, but static apps generally ship a `dist/` already.
+	//
+	// When Bundle is set, StaticDir is the path *inside the extracted
+	// tarball* (commonly "." if the tarball was built with
+	// `tar -C dist .`, or "dist" if the tarball preserves the dist/
+	// prefix).
 	StaticDir   string             `yaml:"static_dir,omitempty" json:"static_dir,omitempty"`
 	Port        int                `yaml:"port" json:"port"`
 	HealthCheck string             `yaml:"health_check" json:"health_check"`
@@ -348,6 +361,17 @@ type SourceSpec struct {
 	Repo  string `yaml:"repo" json:"repo"`
 	Ref   string `yaml:"ref" json:"ref"`
 	Entry string `yaml:"entry" json:"entry"`
+}
+
+// BundleSpec — prebuilt static-asset tarball delivery. URL points at a
+// gzipped tar archive (.tgz / .tar.gz). SHA256 is a hex digest of the
+// raw archive bytes; the server refuses to extract on mismatch. URLs
+// are expected to be immutable (release-asset pattern); the cache
+// keys on <name>/<version> and skips re-download when the marker file
+// matches the manifest's sha256.
+type BundleSpec struct {
+	URL    string `yaml:"url" json:"url"`
+	SHA256 string `yaml:"sha256" json:"sha256"`
 }
 
 type ResourceLimits struct {
@@ -503,6 +527,28 @@ func ValidateManifest(m *Manifest) error {
 	if m.Runtime.Kind == "static" {
 		if m.Runtime.StaticDir == "" {
 			return errors.New("runtime.static_dir required when kind=static")
+		}
+		// Need *somewhere* the bundle can be found at install time.
+		// Absolute static_dir = baked-in; bundle = prebuilt tarball;
+		// source = clone-on-install (dev / authoring loop, no build).
+		if !filepath.IsAbs(m.Runtime.StaticDir) &&
+			m.Runtime.Bundle == nil &&
+			m.Runtime.Source == nil {
+			return errors.New("runtime.static_dir is relative — set runtime.bundle (prebuilt tarball) or runtime.source (clone-on-install) so the server can find it")
+		}
+	}
+	if m.Runtime.Bundle != nil {
+		if m.Runtime.Kind != "static" {
+			return errors.New("runtime.bundle only supported for kind=static")
+		}
+		if m.Runtime.Bundle.URL == "" {
+			return errors.New("runtime.bundle.url required")
+		}
+		if m.Runtime.Bundle.SHA256 == "" {
+			return errors.New("runtime.bundle.sha256 required — unverified bundles are not allowed")
+		}
+		if len(m.Runtime.Bundle.SHA256) != 64 {
+			return fmt.Errorf("runtime.bundle.sha256 must be 64 hex chars (got %d)", len(m.Runtime.Bundle.SHA256))
 		}
 	}
 	if m.Runtime.Kind == "source" {
