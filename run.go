@@ -92,14 +92,28 @@ func Run(app App) {
 			port = n
 		}
 	}
-	// Sidecars always bind loopback. The platform proxies external
-	// requests to /api/apps/<name>/* through its own auth layer; the
-	// sidecar's APTEVA_APP_TOKEN auth is internal-trust (tokens are
-	// the sequential `dev-<install_id>` form, predictable from outside).
-	// 0.0.0.0 here would expose every install's HTTP routes + tools
-	// to anyone on the LAN.
+	// Sidecars default to loopback. Predictable APTEVA_APP_TOKENs
+	// (dev-<install_id>) mean exposing every install to the LAN
+	// would be a token-guessing playground — the platform proxies
+	// /api/apps/<name>/* through its own auth layer instead. Apps
+	// that genuinely need LAN reachability (DLNA broadcaster, IoT
+	// gateways) opt in via runtime.bind_host in the manifest, or
+	// override per-process with APTEVA_BIND_HOST. When non-loopback,
+	// every route MUST set NoAuth (the LAN itself is the auth
+	// boundary in that mode).
+	host := manifest.Runtime.BindHost
+	if v := os.Getenv("APTEVA_BIND_HOST"); v != "" {
+		host = v
+	}
+	if host == "" {
+		host = "127.0.0.1"
+	}
+	if host != "127.0.0.1" && host != "localhost" {
+		logger.Warn("sidecar binding non-loopback — every route on this app is reachable from the LAN; mark NoAuth carefully",
+			"host", host, "port", port)
+	}
 	srv := &http.Server{
-		Addr:              fmt.Sprintf("127.0.0.1:%d", port),
+		Addr:              fmt.Sprintf("%s:%d", host, port),
 		Handler:           withTokenAuth(mux),
 		ReadHeaderTimeout: 5 * time.Second,
 	}

@@ -408,6 +408,17 @@ type Runtime struct {
 	StaticDir   string             `yaml:"static_dir,omitempty" json:"static_dir,omitempty"`
 	Port        int                `yaml:"port" json:"port"`
 	HealthCheck string             `yaml:"health_check" json:"health_check"`
+	// BindHost — interface the sidecar listens on. Default loopback
+	// ("127.0.0.1") because predictable APTEVA_APP_TOKENs (dev-<id>
+	// form) make wider exposure risky for most apps; the platform
+	// proxies LAN/WAN traffic to /api/apps/<name>/* through its own
+	// auth layer, so loopback is the safe choice. Apps that genuinely
+	// need LAN reachability (DLNA broadcaster, ESSDP responder, any
+	// "talk to TVs / IoT devices on the same subnet" use case) set
+	// "0.0.0.0" or a specific interface IP. Mark every NoAuth route
+	// explicitly when doing this — the host's network IS the auth
+	// boundary in that mode.
+	BindHost    string             `yaml:"bind_host,omitempty" json:"bind_host,omitempty"`
 	Resources   ResourceLimits     `yaml:"resources" json:"resources"`
 	Storage     []StorageSpec      `yaml:"storage" json:"storage"`
 	Env         map[string]EnvFrom `yaml:"env" json:"env"`
