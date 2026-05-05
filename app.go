@@ -37,10 +37,19 @@ type App interface {
 
 // Route — single HTTP endpoint. The platform reverse-proxies to it
 // under /apps/<name>/<pattern>.
+//
+// NoAuth opts the route out of the SDK's token-auth gate. Use it for
+// endpoints that need to be reachable by parties that don't carry an
+// APTEVA_APP_TOKEN — e.g. UPnP/DLNA wire endpoints accessed by smart
+// TVs over the LAN, or any other "the LAN itself is the auth" model.
+// The route handler becomes responsible for whatever access control
+// is appropriate. Same exposure model as the existing /webhooks/*
+// prefix carve-out, just opt-in per route.
 type Route struct {
 	Method  string                                              // "" = any
 	Pattern string                                              // mux-style, may include params
 	Handler http.HandlerFunc
+	NoAuth  bool                                                // bypass withTokenAuth for this route
 }
 
 // Tool — one MCP tool exposed by the app. The framework wires these

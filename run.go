@@ -141,8 +141,18 @@ func Run(app App) {
 	logger.Info("stopped")
 }
 
+// publicRoutePaths collects the patterns of every NoAuth route that
+// HTTPRoutes() declared. withTokenAuth consults this slice on every
+// request to decide whether to skip the bearer-token check. Populated
+// once per process at mountAppRoutes time; reads after that are
+// lock-free.
+var publicRoutePaths []string
+
 func mountAppRoutes(mux *http.ServeMux, app App, ctx *AppCtx) {
 	for _, r := range app.HTTPRoutes() {
+		if r.NoAuth {
+			publicRoutePaths = append(publicRoutePaths, r.Pattern)
+		}
 		method := r.Method
 		pattern := r.Pattern
 		handler := r.Handler
@@ -155,6 +165,23 @@ func mountAppRoutes(mux *http.ServeMux, app App, ctx *AppCtx) {
 			_ = ctx
 		})
 	}
+}
+
+// matchesPublicRoute returns true when the request path satisfies any
+// NoAuth route pattern. Mirrors http.ServeMux's matching rules: an
+// exact pattern matches only its exact path; a pattern ending in "/"
+// is a subtree match.
+func matchesPublicRoute(path string) bool {
+	for _, p := range publicRoutePaths {
+		if strings.HasSuffix(p, "/") {
+			if strings.HasPrefix(path, p) {
+				return true
+			}
+		} else if path == p {
+			return true
+		}
+	}
+	return false
 }
 
 // mountFrameworkRoutes wires the platform-mandated endpoints every app
@@ -302,6 +329,14 @@ func withTokenAuth(h http.Handler) http.Handler {
 		// the provider's signature on the payload — see comment block
 		// above.
 		if strings.HasPrefix(r.URL.Path, "/webhooks/") {
+			h.ServeHTTP(w, r)
+			return
+		}
+		// Per-route NoAuth carve-out. Apps mark UPnP/DLNA wire
+		// endpoints (or anything else where the LAN itself is the
+		// auth boundary) by setting Route.NoAuth=true; mountAppRoutes
+		// collected those paths into publicRoutePaths.
+		if matchesPublicRoute(r.URL.Path) {
 			h.ServeHTTP(w, r)
 			return
 		}
