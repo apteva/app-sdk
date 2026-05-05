@@ -3,6 +3,7 @@ package sdk
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -105,40 +106,49 @@ func (c *httpPlatformClient) ExecuteIntegrationTool(connID int64, tool string, i
 	return &out, nil
 }
 
-// CallApp invokes an MCP tool on a sibling app via the platform's
-// callback proxy. The platform forwards to the target sidecar's /mcp
-// endpoint, which speaks the MCP JSON-RPC dialect:
-//
-//   request:  {"jsonrpc":"2.0","id":1,"method":"tools/call",
-//              "params":{"name":"<tool>","arguments":{...}}}
-//   response: {"jsonrpc":"2.0","id":1,
-//              "result":{"content":[{"type":"text","text":"<inner JSON>"}]}}
-//
-// We unwrap that envelope once here so callers see the tool's actual
-// return shape and can json.Unmarshal directly. Without this, every
-// caller had to know about the JSON-RPC + content-array layers and
-// strip them by hand — and many didn't, leading to silent
-// "cannot unmarshal object into …" failures (DLNA's Browse handlers
-// hit this for every storage call until v0.1.12).
-//
-// On error_code != 0 in the inner JSON, callers see the raw inner
-// shape; the platform-level transport errors still bubble through
-// the returned error.
 func (c *httpPlatformClient) CallApp(appName, tool string, input map[string]any) (json.RawMessage, error) {
 	if input == nil {
 		input = map[string]any{}
 	}
 	body := map[string]any{"tool": tool, "input": input}
-	var raw json.RawMessage
-	if err := c.postWith(c.slowClient, "/api/apps/callback/apps/"+appName+"/call", body, &raw); err != nil {
+	var out json.RawMessage
+	if err := c.postWith(c.slowClient, "/api/apps/callback/apps/"+appName+"/call", body, &out); err != nil {
 		return nil, err
 	}
-	// Try to unwrap the MCP envelope. If the response doesn't match
-	// the expected shape (e.g. the platform someday changes the proxy
-	// path), fall through with the raw bytes so older callers keep
-	// working.
+	return out, nil
+}
+
+// CallAppResult — CallApp + MCP-envelope unwrap. See PlatformClient
+// interface doc for the wire shape and motivation. Pure addition;
+// CallApp keeps its raw-envelope contract for the apps that already
+// strip the envelope themselves (deploy/domain_link, certs/domain_link).
+func (c *httpPlatformClient) CallAppResult(appName, tool string, input map[string]any, out any) error {
+	raw, err := c.CallApp(appName, tool, input)
+	if err != nil {
+		return err
+	}
+	return decodeMCPEnvelope(raw, appName, tool, out)
+}
+
+// decodeMCPEnvelope strips the JSON-RPC + content-array layers and
+// json.Unmarshals the inner text into out. Resilient to two
+// shapes:
+//
+//  1. Full envelope: {"jsonrpc":..., "result":{"content":[{"text":"<json>"}]}}
+//  2. Bare inner: <json> directly (test mocks, future platform
+//     versions that pre-unwrap, etc.)
+//
+// On RPC-level error (.error.code) returns a descriptive Go error
+// without ever touching out.
+func decodeMCPEnvelope(raw json.RawMessage, appName, tool string, out any) error {
+	if out == nil {
+		return errors.New("CallAppResult: out is nil")
+	}
+	if len(raw) == 0 {
+		return fmt.Errorf("%s.%s: empty response", appName, tool)
+	}
 	var env struct {
-		Result struct {
+		Result *struct {
 			Content []struct {
 				Type string `json:"type"`
 				Text string `json:"text"`
@@ -150,23 +160,32 @@ func (c *httpPlatformClient) CallApp(appName, tool string, input map[string]any)
 			Message string `json:"message"`
 		} `json:"error,omitempty"`
 	}
+	// Try the envelope shape; if it doesn't fit (caller is using a
+	// pre-unwrapped client or the bytes are already the inner JSON),
+	// fall through to direct decode.
 	if err := json.Unmarshal(raw, &env); err != nil {
-		return raw, nil
+		return json.Unmarshal(raw, out)
 	}
 	if env.Error != nil {
-		return nil, fmt.Errorf("%s.%s: %s (code=%d)", appName, tool, env.Error.Message, env.Error.Code)
+		return fmt.Errorf("%s.%s: %s (code=%d)", appName, tool, env.Error.Message, env.Error.Code)
 	}
-	if len(env.Result.Content) == 0 {
-		return raw, nil
+	if env.Result == nil || len(env.Result.Content) == 0 {
+		// Either the response was already unwrapped (some test paths)
+		// or it had no content. Try direct decode; if that fails we
+		// surface the original bytes for diagnosis.
+		if jerr := json.Unmarshal(raw, out); jerr != nil {
+			return fmt.Errorf("%s.%s: response had no content array and direct decode failed: %w", appName, tool, jerr)
+		}
+		return nil
 	}
-	// MCP tools encode their JSON return as a single text content
-	// part. The text itself is already a JSON document; strip the
-	// envelope layer and hand callers the raw inner JSON.
 	inner := env.Result.Content[0].Text
 	if inner == "" {
-		return raw, nil
+		return fmt.Errorf("%s.%s: empty content text", appName, tool)
 	}
-	return json.RawMessage(inner), nil
+	if err := json.Unmarshal([]byte(inner), out); err != nil {
+		return fmt.Errorf("%s.%s: decode inner JSON: %w (text: %.200s)", appName, tool, err, inner)
+	}
+	return nil
 }
 
 func (c *httpPlatformClient) StartOAuth(req OAuthStartRequest) (*OAuthStartResult, error) {

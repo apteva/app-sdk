@@ -447,7 +447,33 @@ type PlatformClient interface {
 	// App-to-app call. Invokes an MCP tool on a sibling app the
 	// install was bound to. Authorization: the install must declare
 	// platform.apps.call and appName must be in a kind=app binding.
+	//
+	// Returns the raw JSON-RPC envelope from the target sidecar's
+	// /mcp endpoint:
+	//
+	//   {"jsonrpc":"2.0","id":1,"result":{"content":[{"type":"text",
+	//    "text":"<tool's actual JSON return>"}]}}
+	//
+	// Callers that just want the tool's return shape should prefer
+	// CallAppResult (added in v0.1.8) which unwraps that envelope
+	// for them. CallApp stays for callers that already unwrap
+	// themselves and for non-tool /mcp methods (resources/list, etc.).
 	CallApp(appName, tool string, input map[string]any) (json.RawMessage, error)
+
+	// CallAppResult is CallApp + automatic JSON-RPC envelope unwrap.
+	// Decodes result.content[0].text directly into out so callers
+	// can use the tool's natural shape:
+	//
+	//   var got struct{ Files []File `json:"files"` }
+	//   if err := api.CallAppResult("storage", "files_list", args, &got); err != nil {
+	//     return err
+	//   }
+	//   // got.Files is the tool's `files` array.
+	//
+	// Falls back to decoding the raw response when the envelope is
+	// missing — covers the "the platform short-circuited an
+	// unwrapped response" path some test/mocked clients use.
+	CallAppResult(appName, tool string, input map[string]any, out any) error
 
 	// App-initiated OAuth. Creates a pending connection owned by this
 	// install (created_via=app_install, owner_app_install_id=<this>),
