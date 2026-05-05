@@ -543,4 +543,14 @@ type InstallIdentity struct {
 	// connection_id (kind=integration) or install_id (kind=app),
 	// or null when the operator declined an optional dep.
 	Bindings map[string]any `json:"bindings"`
+	// PublicURL is the platform's externally-reachable base URL
+	// (e.g. "https://agents.example.com") — admin-editable from
+	// Settings → Server, falls back to the PUBLIC_URL env var, falls
+	// back to "" when unset (dev/local installs). Apps that mint
+	// shareable links should prepend this rather than reading
+	// APTEVA_PUBLIC_URL directly so settings changes propagate
+	// through WhoAmI's sub-second cache without a sidecar restart.
+	// Empty string means "no absolute URL configured" — apps should
+	// fall back to relative paths and document the limitation.
+	PublicURL string `json:"public_url,omitempty"`
 }
