@@ -92,8 +92,14 @@ func Run(app App) {
 			port = n
 		}
 	}
+	// Sidecars always bind loopback. The platform proxies external
+	// requests to /api/apps/<name>/* through its own auth layer; the
+	// sidecar's APTEVA_APP_TOKEN auth is internal-trust (tokens are
+	// the sequential `dev-<install_id>` form, predictable from outside).
+	// 0.0.0.0 here would expose every install's HTTP routes + tools
+	// to anyone on the LAN.
 	srv := &http.Server{
-		Addr:              fmt.Sprintf(":%d", port),
+		Addr:              fmt.Sprintf("127.0.0.1:%d", port),
 		Handler:           withTokenAuth(mux),
 		ReadHeaderTimeout: 5 * time.Second,
 	}
