@@ -45,17 +45,30 @@ type Route struct {
 
 // Tool — one MCP tool exposed by the app. The framework wires these
 // into a single MCP endpoint at the sidecar's /mcp.
+//
+// Set Handler for the original install-scoped signature; set
+// HandlerCtx to receive a per-call context.Context carrying the
+// Caller (instance id + grants). Exactly one of Handler / HandlerCtx
+// must be set; HandlerCtx wins if both are.
 type Tool struct {
 	Name        string
 	Description string
-	InputSchema map[string]any                                  // JSON schema
+	InputSchema map[string]any // JSON schema
 	Handler     ToolHandler
+	HandlerCtx  ToolHandlerCtx
 }
 
 // ToolHandler is the per-call handler. ctx is the app context (DB,
 // platform client, logger). The map is the raw arguments; return the
 // MCP result as a JSON-encodable value.
 type ToolHandler func(ctx *AppCtx, args map[string]any) (any, error)
+
+// ToolHandlerCtx is the per-call handler with a context.Context that
+// carries the Caller — the calling agent's instance id + grants.
+// Pull the Caller via sdk.CallerFrom(ctx). When the framework can't
+// determine a Caller (header missing, older platform), CallerFrom
+// returns nil and Caller methods treat that as full access.
+type ToolHandlerCtx func(ctx context.Context, app *AppCtx, args map[string]any) (any, error)
 
 // Worker — long-lived goroutine the framework supervises. Schedule is
 // declarative ("@every 5m" / cron) for periodic workers; leave empty
@@ -446,6 +459,22 @@ type PlatformClient interface {
 	// owner_app_install_id matches; never operator rows. Authorization:
 	// install must declare platform.connections.read or .manage.
 	ListOwnedConnections() ([]PlatformConnection, error)
+
+	// GetGrants returns the per-(this install, instanceID) policy the
+	// operator wrote for the calling agent. Used by the SDK's MCP
+	// handler to gate tool calls. Returns a zero-value response (no
+	// rules, default allow) when the platform doesn't yet implement
+	// the endpoint — back-compat with older servers.
+	GetGrants(instanceID int64) (*GrantsResponse, error)
+}
+
+// GrantsResponse is what GetGrants returns. DefaultEffect is the
+// install-wide fallback when no rule matches; Grants is the rule list
+// for this (install, instance) pair. Empty rules + default "allow" =
+// "this agent has full access" — the back-compat default.
+type GrantsResponse struct {
+	DefaultEffect string  `json:"default_effect"`
+	Grants        []Grant `json:"grants"`
 }
 
 // OAuthStartRequest is the body for PlatformClient.StartOAuth.

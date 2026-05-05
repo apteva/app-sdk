@@ -137,6 +137,26 @@ func (c *httpPlatformClient) ListOwnedConnections() ([]PlatformConnection, error
 	return out, nil
 }
 
+// GetGrants fetches the policy the operator wrote for (this install,
+// instanceID). Returns empty rules + default "allow" when the
+// platform endpoint is missing — back-compat with older servers
+// that haven't shipped the grants API yet.
+func (c *httpPlatformClient) GetGrants(instanceID int64) (*GrantsResponse, error) {
+	var out GrantsResponse
+	path := "/api/apps/callback/grants?instance_id=" + strconv.FormatInt(instanceID, 10)
+	err := c.get(path, &out)
+	if err != nil {
+		// Older servers return 404 for the endpoint; treat as
+		// "default allow, no rules" so existing apps don't 403
+		// after upgrading the SDK.
+		return &GrantsResponse{DefaultEffect: "allow"}, nil
+	}
+	if out.DefaultEffect == "" {
+		out.DefaultEffect = "allow"
+	}
+	return &out, nil
+}
+
 // --- low-level helpers -------------------------------------------------------
 
 func (c *httpPlatformClient) get(path string, out any) error {

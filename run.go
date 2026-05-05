@@ -398,32 +398,115 @@ func (h *mcpHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	case "tools/call":
 		name, _ := req.Params["name"].(string)
 		args, _ := req.Params["arguments"].(map[string]any)
-		for _, t := range h.tools {
-			if t.Name == name {
-				res, err := t.Handler(h.ctx, args)
-				if err != nil {
-					writeMCPErr(w, req.ID, -32000, err.Error())
-					return
-				}
-				// Encode as JSON so MCP clients can parse the result
-				// back into structured data. fmt.Sprint produces Go's
-				// map syntax which no client understands.
-				body, jerr := json.Marshal(res)
-				if jerr != nil {
-					writeMCPErr(w, req.ID, -32000, "encode result: "+jerr.Error())
-					return
-				}
-				writeMCP(w, req.ID, map[string]any{"content": []map[string]any{
-					{"type": "text", "text": string(body)},
-				}})
-				return
+		var matched *Tool
+		for i := range h.tools {
+			if h.tools[i].Name == name {
+				matched = &h.tools[i]
+				break
 			}
 		}
-		writeMCPErr(w, req.ID, -32601, "tool not found: "+name)
+		if matched == nil {
+			writeMCPErr(w, req.ID, -32601, "tool not found: "+name)
+			return
+		}
+
+		// Build a Caller from the X-Apteva-Caller-Instance header.
+		// When the header is absent (back-compat: older platforms
+		// that don't forward it, dev curl, etc.) caller is nil and
+		// the gate degrades to "allow" — same as today.
+		caller := h.buildCaller(r)
+
+		// Manifest-declared per-tool gate. Only kicks in when both
+		// Requires is set on this tool's MCPToolSpec AND a Caller
+		// was supplied. Apps that don't declare requires keep
+		// pre-permissions behavior.
+		if caller != nil {
+			spec := h.toolSpec(name)
+			if spec != nil && spec.Requires != "" {
+				resource, err := substituteResource(spec.ResourceFrom, args)
+				if err != nil {
+					writeMCPErr(w, req.ID, -32602, err.Error())
+					return
+				}
+				if !caller.Allows(spec.Requires, resource) {
+					writeMCPErr(w, req.ID, -32000,
+						(&ErrForbidden{Permission: spec.Requires, Resource: resource}).Error())
+					return
+				}
+			}
+		}
+
+		callCtx := WithCaller(r.Context(), caller)
+		var (
+			res any
+			err error
+		)
+		switch {
+		case matched.HandlerCtx != nil:
+			res, err = matched.HandlerCtx(callCtx, h.ctx, args)
+		case matched.Handler != nil:
+			res, err = matched.Handler(h.ctx, args)
+		default:
+			writeMCPErr(w, req.ID, -32603, "tool "+name+": no handler registered")
+			return
+		}
+		if err != nil {
+			writeMCPErr(w, req.ID, -32000, err.Error())
+			return
+		}
+		// Encode as JSON so MCP clients can parse the result
+		// back into structured data. fmt.Sprint produces Go's
+		// map syntax which no client understands.
+		body, jerr := json.Marshal(res)
+		if jerr != nil {
+			writeMCPErr(w, req.ID, -32000, "encode result: "+jerr.Error())
+			return
+		}
+		writeMCP(w, req.ID, map[string]any{"content": []map[string]any{
+			{"type": "text", "text": string(body)},
+		}})
 
 	default:
 		writeMCPErr(w, req.ID, -32601, "method not found: "+req.Method)
 	}
+}
+
+// buildCaller materializes a Caller from request headers. Returns nil
+// when X-Apteva-Caller-Instance is absent — the SDK treats nil as
+// "no caller info, allow everything" so apps that haven't opted in
+// keep working through platforms that do forward the header.
+func (h *mcpHandler) buildCaller(r *http.Request) *Caller {
+	raw := r.Header.Get("X-Apteva-Caller-Instance")
+	if raw == "" {
+		return nil
+	}
+	id, err := strconv.ParseInt(raw, 10, 64)
+	if err != nil || id <= 0 {
+		return nil
+	}
+	resp, _ := h.ctx.platform.GetGrants(id)
+	if resp == nil {
+		resp = &GrantsResponse{DefaultEffect: "allow"}
+	}
+	return &Caller{
+		InstanceID:    id,
+		Grants:        resp.Grants,
+		DefaultEffect: resp.DefaultEffect,
+		Resources:     h.ctx.Manifest().Provides.Resources,
+	}
+}
+
+// toolSpec finds the manifest spec for a runtime tool by name.
+// Returns nil when the manifest doesn't list it (e.g. dynamic tools
+// not declared up front) — those tools skip the gate.
+func (h *mcpHandler) toolSpec(name string) *MCPToolSpec {
+	specs := h.ctx.Manifest().Provides.MCPTools
+	for i := range specs {
+		if specs[i].Name == name {
+			return &specs[i]
+		}
+	}
+	return nil
 }
 
 func writeMCP(w http.ResponseWriter, id any, result any) {

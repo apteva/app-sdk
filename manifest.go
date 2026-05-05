@@ -155,6 +155,58 @@ type Provides struct {
 	// becomes one row in the platform's skills table on install,
 	// refreshes on upgrade, cascade-deletes on uninstall.
 	Skills          []Skill           `yaml:"skills,omitempty" json:"skills,omitempty"`
+
+	// Resources + ProvidedPermissions opt the app into per-(install,
+	// instance) authorization. Apps that omit both keep today's
+	// "every bound agent has full access" behavior. See ResourceDecl
+	// and ProvidedPermission for the shape, and the Caller type in
+	// app.go for runtime enforcement.
+	Resources           []ResourceDecl       `yaml:"resources,omitempty" json:"resources,omitempty"`
+	ProvidedPermissions []ProvidedPermission `yaml:"permissions,omitempty" json:"permissions,omitempty"`
+}
+
+// ResourceDecl describes one shape of resource the app exposes to
+// callers — a folder, a social account, a project, a tag set. The
+// platform uses this to render an appropriate picker when an operator
+// is writing grants, and the runtime uses it to interpret the
+// `resource` string on each grant rule.
+//
+// Empty Resources slice = no resource-shaped scoping (permissions are
+// boolean only).
+type ResourceDecl struct {
+	// Name is the type id referenced by ProvidedPermission.Resource.
+	Name string `yaml:"name" json:"name"`
+	// Label is the human-readable name shown by the dashboard.
+	Label string `yaml:"label,omitempty" json:"label,omitempty"`
+	// ListEndpoint is the app-relative path the dashboard hits to
+	// populate the picker (returns {items: [{id,label,parent?}]}).
+	// Empty = no picker; the dashboard renders a freeform field.
+	ListEndpoint string `yaml:"list_endpoint,omitempty" json:"list_endpoint,omitempty"`
+	// Matcher selects how grant.resource is compared against runtime
+	// resources. One of: glob, id_set, prefix, tag_set, exact.
+	Matcher string `yaml:"matcher" json:"matcher"`
+	// Picker hints the dashboard rendering. One of: tree, list,
+	// search, tags, freeform. Defaults to freeform when empty.
+	Picker string `yaml:"picker,omitempty" json:"picker,omitempty"`
+	// ListingVisibility controls how lists/searches behave when the
+	// caller is partially scoped. Tree-shaped resources default to
+	// "navigable" (ancestor stubs visible so the caller can drill in
+	// to the allowed subtree). Other shapes default to "scoped_only".
+	ListingVisibility string `yaml:"listing_visibility,omitempty" json:"listing_visibility,omitempty"`
+}
+
+// ProvidedPermission is one verb the app exposes — read, write,
+// delete, publish, etc. Operators write grants in terms of these.
+type ProvidedPermission struct {
+	// Name is the permission id (dotted, app-scoped — "files.read",
+	// "posts.publish"). Referenced from MCPToolSpec.Requires.
+	Name string `yaml:"name" json:"name"`
+	// Resource references one of Provides.Resources by name.
+	// Empty = unparameterized (boolean grant; resource pattern
+	// ignored).
+	Resource string `yaml:"resource,omitempty" json:"resource,omitempty"`
+	// Description is shown in the dashboard's grant form.
+	Description string `yaml:"description,omitempty" json:"description,omitempty"`
 }
 
 // Skill — a markdown-bodied playbook the agent loads on demand.
@@ -230,10 +282,20 @@ type RouteSpec struct {
 // MCPToolSpec is the per-tool entry the sidecar's MCP endpoint exposes.
 // The platform records one mcp_servers row per app install pointing at
 // the sidecar's /mcp; tool listing happens dynamically — the spec here
-// is for marketplace display only.
+// is for marketplace display and per-call authorization.
 type MCPToolSpec struct {
 	Name        string `yaml:"name" json:"name"`
 	Description string `yaml:"description" json:"description"`
+	// Requires names a permission from Provides.ProvidedPermissions.
+	// When set, the SDK gates this tool on the caller's grants
+	// before invoking the handler. Empty = no gate (back-compat).
+	Requires string `yaml:"requires,omitempty" json:"requires,omitempty"`
+	// ResourceFrom is a template that builds the runtime resource
+	// from the call args, e.g. "folder/{arg.folder}". Substituted
+	// by the SDK gate; the result is matched against grant.resource
+	// using the resource type's Matcher. Empty = handler-side
+	// enforcement (gate skipped, app filters returns itself).
+	ResourceFrom string `yaml:"resource_from,omitempty" json:"resource_from,omitempty"`
 }
 
 // PromptFragment files concatenate into instance directives at boot
@@ -575,6 +637,75 @@ func ValidateManifest(m *Manifest) error {
 	case UpgradeManual, UpgradeAutoPatch, UpgradeAutoMinor:
 	default:
 		return fmt.Errorf("upgrade_policy %q invalid", m.UpgradePolicy)
+	}
+	if err := validateProvidedPermissions(&m.Provides); err != nil {
+		return err
+	}
+	return nil
+}
+
+// validateProvidedPermissions checks that the permission/resource graph
+// is internally consistent: every ProvidedPermission.Resource refers to
+// a declared ResourceDecl, every MCPToolSpec.Requires names a declared
+// permission, matchers + pickers come from the known vocabulary.
+//
+// Apps that don't opt in (no resources, no permissions) skip every
+// check below.
+func validateProvidedPermissions(p *Provides) error {
+	resourceTypes := make(map[string]*ResourceDecl, len(p.Resources))
+	for i := range p.Resources {
+		r := &p.Resources[i]
+		if r.Name == "" {
+			return errors.New("provides.resources[].name required")
+		}
+		if _, dup := resourceTypes[r.Name]; dup {
+			return fmt.Errorf("provides.resources: duplicate name %q", r.Name)
+		}
+		switch r.Matcher {
+		case "glob", "id_set", "prefix", "tag_set", "exact":
+		case "":
+			return fmt.Errorf("provides.resources[%q].matcher required (glob|id_set|prefix|tag_set|exact)", r.Name)
+		default:
+			return fmt.Errorf("provides.resources[%q].matcher %q unsupported", r.Name, r.Matcher)
+		}
+		switch r.Picker {
+		case "", "tree", "list", "search", "tags", "freeform":
+		default:
+			return fmt.Errorf("provides.resources[%q].picker %q unsupported", r.Name, r.Picker)
+		}
+		switch r.ListingVisibility {
+		case "", "navigable", "scoped_only", "none":
+		default:
+			return fmt.Errorf("provides.resources[%q].listing_visibility %q unsupported", r.Name, r.ListingVisibility)
+		}
+		resourceTypes[r.Name] = r
+	}
+	permissions := make(map[string]*ProvidedPermission, len(p.ProvidedPermissions))
+	for i := range p.ProvidedPermissions {
+		perm := &p.ProvidedPermissions[i]
+		if perm.Name == "" {
+			return errors.New("provides.permissions[].name required")
+		}
+		if _, dup := permissions[perm.Name]; dup {
+			return fmt.Errorf("provides.permissions: duplicate name %q", perm.Name)
+		}
+		if perm.Resource != "" {
+			if _, ok := resourceTypes[perm.Resource]; !ok {
+				return fmt.Errorf("provides.permissions[%q].resource %q not declared in provides.resources", perm.Name, perm.Resource)
+			}
+		}
+		permissions[perm.Name] = perm
+	}
+	for i := range p.MCPTools {
+		t := &p.MCPTools[i]
+		if t.Requires == "" {
+			continue
+		}
+		if _, ok := permissions[t.Requires]; !ok {
+			return fmt.Errorf("provides.mcp_tools[%q].requires %q not declared in provides.permissions", t.Name, t.Requires)
+		}
+		// ResourceFrom is informational at parse time — substitution
+		// happens at call time. Anything goes here.
 	}
 	return nil
 }
