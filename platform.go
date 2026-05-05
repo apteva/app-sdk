@@ -105,16 +105,68 @@ func (c *httpPlatformClient) ExecuteIntegrationTool(connID int64, tool string, i
 	return &out, nil
 }
 
+// CallApp invokes an MCP tool on a sibling app via the platform's
+// callback proxy. The platform forwards to the target sidecar's /mcp
+// endpoint, which speaks the MCP JSON-RPC dialect:
+//
+//   request:  {"jsonrpc":"2.0","id":1,"method":"tools/call",
+//              "params":{"name":"<tool>","arguments":{...}}}
+//   response: {"jsonrpc":"2.0","id":1,
+//              "result":{"content":[{"type":"text","text":"<inner JSON>"}]}}
+//
+// We unwrap that envelope once here so callers see the tool's actual
+// return shape and can json.Unmarshal directly. Without this, every
+// caller had to know about the JSON-RPC + content-array layers and
+// strip them by hand — and many didn't, leading to silent
+// "cannot unmarshal object into …" failures (DLNA's Browse handlers
+// hit this for every storage call until v0.1.12).
+//
+// On error_code != 0 in the inner JSON, callers see the raw inner
+// shape; the platform-level transport errors still bubble through
+// the returned error.
 func (c *httpPlatformClient) CallApp(appName, tool string, input map[string]any) (json.RawMessage, error) {
 	if input == nil {
 		input = map[string]any{}
 	}
 	body := map[string]any{"tool": tool, "input": input}
-	var out json.RawMessage
-	if err := c.postWith(c.slowClient, "/api/apps/callback/apps/"+appName+"/call", body, &out); err != nil {
+	var raw json.RawMessage
+	if err := c.postWith(c.slowClient, "/api/apps/callback/apps/"+appName+"/call", body, &raw); err != nil {
 		return nil, err
 	}
-	return out, nil
+	// Try to unwrap the MCP envelope. If the response doesn't match
+	// the expected shape (e.g. the platform someday changes the proxy
+	// path), fall through with the raw bytes so older callers keep
+	// working.
+	var env struct {
+		Result struct {
+			Content []struct {
+				Type string `json:"type"`
+				Text string `json:"text"`
+			} `json:"content"`
+			IsError bool `json:"isError,omitempty"`
+		} `json:"result"`
+		Error *struct {
+			Code    int    `json:"code"`
+			Message string `json:"message"`
+		} `json:"error,omitempty"`
+	}
+	if err := json.Unmarshal(raw, &env); err != nil {
+		return raw, nil
+	}
+	if env.Error != nil {
+		return nil, fmt.Errorf("%s.%s: %s (code=%d)", appName, tool, env.Error.Message, env.Error.Code)
+	}
+	if len(env.Result.Content) == 0 {
+		return raw, nil
+	}
+	// MCP tools encode their JSON return as a single text content
+	// part. The text itself is already a JSON document; strip the
+	// envelope layer and hand callers the raw inner JSON.
+	inner := env.Result.Content[0].Text
+	if inner == "" {
+		return raw, nil
+	}
+	return json.RawMessage(inner), nil
 }
 
 func (c *httpPlatformClient) StartOAuth(req OAuthStartRequest) (*OAuthStartResult, error) {
