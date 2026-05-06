@@ -537,10 +537,18 @@ type OAuthStartResult struct {
 // ExecuteResult mirrors apteva-server's response shape for integration
 // tool executions. data is the upstream API's response body parsed
 // from JSON; status is the HTTP status the upstream returned.
+//
+// Headers carries a small allowlisted set of response headers the
+// server forwards from the upstream (Location, Content-Type, Etag,
+// Last-Modified). Apps that need to follow a redirect-style flow
+// (YouTube resumable upload init returns the session URL only via
+// Location) can read it here. Empty when the server is older than
+// the introduction of header forwarding.
 type ExecuteResult struct {
-	Success bool            `json:"success"`
-	Status  int             `json:"status"`
-	Data    json.RawMessage `json:"data"`
+	Success bool              `json:"success"`
+	Status  int               `json:"status"`
+	Data    json.RawMessage   `json:"data"`
+	Headers map[string]string `json:"headers,omitempty"`
 }
 
 type PlatformConnection struct {
