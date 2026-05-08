@@ -606,6 +606,19 @@ type InstallIdentity struct {
 	Version     string         `json:"version"`
 	InstallID   int64          `json:"install_id"`
 	ProjectID   string         `json:"project_id"`
+	// ProjectName is the operator-set human label for the project
+	// (Settings → Projects → Name). Empty for global installs.
+	// Apps that surface human-readable references to the project
+	// (LLM system prompts, panel headers, generated documents)
+	// should use this rather than the opaque ProjectID.
+	ProjectName string `json:"project_name,omitempty"`
+	// ProjectDescription is the operator-set free-text description
+	// for the project (Settings → Projects → Description). Empty
+	// when the operator hasn't filled it in. Useful as context for
+	// LLM-using apps — e.g. media's describer prepends it to the
+	// system prompt so generated descriptions land in the right
+	// register ("internal team standups", "cooking show clips").
+	ProjectDescription string `json:"project_description,omitempty"`
 	Permissions []Permission   `json:"permissions"`
 	// Bindings carries the install's integration_bindings JSON —
 	// keys are role names declared in the manifest, values are
