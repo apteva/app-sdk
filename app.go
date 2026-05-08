@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"time"
 )
 
 // App is the single interface every Apteva app implements. Every facet
@@ -501,6 +502,19 @@ type PlatformClient interface {
 	// rules, default allow) when the platform doesn't yet implement
 	// the endpoint — back-compat with older servers.
 	GetGrants(instanceID int64) (*GrantsResponse, error)
+
+	// GetConnectionCredentials returns the decrypted credentials for a
+	// bound connection. Use this when the integration runner's
+	// tool-call surface isn't expressive enough — multipart uploads,
+	// presigned URLs, range GETs against an S3-compatible backend, etc.
+	//
+	// Requirements (all enforced server-side):
+	//   1. Manifest declares platform.connections.read_credentials.
+	//   2. The connection's slug is in some requires.integrations[].
+	//      compatible_slugs entry on this install's manifest.
+	//   3. The connection ID is in the install's integration_bindings
+	//      for one of those roles (operator actually bound it).
+	GetConnectionCredentials(id int64) (*ConnectionCredentials, error)
 }
 
 // GrantsResponse is what GetGrants returns. DefaultEffect is the
@@ -549,6 +563,18 @@ type ExecuteResult struct {
 	Status  int               `json:"status"`
 	Data    json.RawMessage   `json:"data"`
 	Headers map[string]string `json:"headers,omitempty"`
+}
+
+// ConnectionCredentials is the decrypted credential bundle for a
+// connection this install has bound. Returned by
+// PlatformClient.GetConnectionCredentials. Fields keys mirror the
+// catalog entry's auth.credential_fields[].name — slug-specific
+// endpoint construction is the caller's job.
+type ConnectionCredentials struct {
+	ConnectionID int64             `json:"id"`
+	Slug         string            `json:"slug"`
+	Fields       map[string]string `json:"fields"`
+	FetchedAt    time.Time         `json:"fetched_at"`
 }
 
 type PlatformConnection struct {

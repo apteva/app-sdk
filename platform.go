@@ -228,6 +228,18 @@ func (c *httpPlatformClient) GetGrants(instanceID int64) (*GrantsResponse, error
 	return &out, nil
 }
 
+// GetConnectionCredentials hits /api/apps/callback/connections/:id/credentials.
+// Authorization (permission, compatible_slugs, binding) is enforced
+// server-side; this is a thin GET wrapper.
+func (c *httpPlatformClient) GetConnectionCredentials(id int64) (*ConnectionCredentials, error) {
+	var out ConnectionCredentials
+	path := "/api/apps/callback/connections/" + strconv.FormatInt(id, 10) + "/credentials"
+	if err := c.get(path, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
 // --- low-level helpers -------------------------------------------------------
 
 func (c *httpPlatformClient) get(path string, out any) error {

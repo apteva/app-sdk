@@ -525,6 +525,11 @@ const (
 	// refresh the connections it owns.
 	PermOAuthStart           Permission = "platform.oauth.start"
 	PermConnectionsManage    Permission = "platform.connections.manage"
+	// PermConnectionsReadCredentials lets an app read raw decrypted
+	// credentials from a bound integration connection. Reserved for
+	// apps whose access pattern can't go through the integration
+	// runner (multipart uploads, presigned URLs, range GETs).
+	PermConnectionsReadCredentials Permission = "platform.connections.read_credentials"
 )
 
 // AllPermissions returns the full taxonomy — used by the dashboard's
@@ -537,6 +542,7 @@ func AllPermissions() []Permission {
 		PermMCPAttach, PermChannelsSend, PermAppsCall,
 		PermFSReadShared, PermFSWriteShared,
 		PermOAuthStart, PermConnectionsManage,
+		PermConnectionsReadCredentials,
 	}
 }
 
