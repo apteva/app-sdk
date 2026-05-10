@@ -574,6 +574,51 @@ func writeMCPErr(w http.ResponseWriter, id any, code int, msg string) {
 	_ = json.NewEncoder(w).Encode(mcpResponse{JSONRPC: "2.0", ID: id, Error: &mcpError{Code: code, Message: msg}})
 }
 
+// watchDBInode logs a critical warning whenever the DB file's inode
+// changes — i.e. somebody replaced the file under us. The connection
+// pool drains itself via SetConnMaxLifetime; this watchdog exists so
+// the swap event is loud + observable instead of showing up as
+// silent SQLITE_READONLY_DBMOVED errors on the next write.
+//
+// Runs forever once the DB is open. Cheap (one stat every 30s) and
+// the goroutine's lifetime is bounded by the process. No-ops when
+// the path can't be stat'd (file gone temporarily during an atomic
+// rename); the next tick will catch the replacement.
+func watchDBInode(path string, logger Logger) {
+	original, ok := statInode(path)
+	if !ok {
+		return
+	}
+	tick := time.NewTicker(30 * time.Second)
+	defer tick.Stop()
+	for range tick.C {
+		current, ok := statInode(path)
+		if !ok {
+			continue
+		}
+		if current != original {
+			if logger != nil {
+				logger.Warn("DB file inode changed underneath running sidecar — connection pool will recycle within SetConnMaxLifetime; check for backup restore / deploy script / volume remount that replaced the file",
+					"path", path, "original_inode", original, "current_inode", current)
+			}
+			// Update so we only log once per swap (next swap re-fires).
+			original = current
+		}
+	}
+}
+
+func statInode(path string) (uint64, bool) {
+	st, err := os.Stat(path)
+	if err != nil {
+		return 0, false
+	}
+	sys, ok := st.Sys().(*syscall.Stat_t)
+	if !ok {
+		return 0, false
+	}
+	return uint64(sys.Ino), true
+}
+
 // --- DB open + migrations ---------------------------------------------------
 
 func openAppDB(cfg *DBConfig, logger Logger) (*sql.DB, error) {
@@ -599,6 +644,32 @@ func openAppDB(cfg *DBConfig, logger Logger) (*sql.DB, error) {
 	if err := db.Ping(); err != nil {
 		return nil, err
 	}
+	// Recycle pooled connections so they can't pin a stale inode forever.
+	//
+	// Background: when something (a backup-app live restore, an rsync, a
+	// volume remount, a manual cp) replaces the DB file under the running
+	// sidecar, every existing connection becomes poisoned and SQLite
+	// returns SQLITE_READONLY_DBMOVED (extended code 1032) on every write.
+	// The connection pool happily hands out the poisoned conns forever
+	// because nothing about them looks broken to database/sql — Ping
+	// passes, only writes fail.
+	//
+	// Capping the lifetime at 5 minutes means a poisoned pool fully drains
+	// within at most 5 minutes of the swap; new connections are opened by
+	// modernc.org/sqlite via a fresh open(2), which resolves the path to
+	// the new inode. Idle cap of 2 minutes makes sure even quiet apps
+	// recycle in a reasonable window.
+	db.SetConnMaxLifetime(5 * time.Minute)
+	db.SetConnMaxIdleTime(2 * time.Minute)
+
+	// Inode watchdog. Every 30s, stat the DB path and compare the inode
+	// to the one captured at open time. When the inode changes the pool
+	// is poisoned (see SQLITE_READONLY_DBMOVED above); the conn-lifetime
+	// cap will drain it within ~5 min, but we want loud + immediate
+	// signal so operators can correlate the swap. We log a critical
+	// warning rather than crashing so in-flight requests can complete;
+	// the pool recycles itself within the cap window.
+	go watchDBInode(path, logger)
 	migrationsDir := cfg.Migrations
 	// APTEVA_MIGRATIONS_DIR overrides the manifest path the same way
 	// DB_PATH overrides cfg.Path. The platform points it at the absolute
