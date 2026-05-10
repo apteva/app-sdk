@@ -481,7 +481,13 @@ type DBConfig struct {
 type ConfigField struct {
 	Name        string `yaml:"name" json:"name"`
 	Label       string `yaml:"label" json:"label"`
-	Type        string `yaml:"type" json:"type"` // text | password | toggle | select | gdrive_sheet | gdrive_folder | …
+	// Type names recognised by the dashboard renderer:
+	//   text | password | toggle | select | gdrive_sheet |
+	//   gdrive_folder | select_from_integration
+	// Unknown types fall back to a plain text input. New types
+	// must be added in two places: this comment + the dashboard's
+	// SettingsSection / InstallModal switch arms.
+	Type        string `yaml:"type" json:"type"`
 	Description string `yaml:"description" json:"description"`
 	Required    bool   `yaml:"required" json:"required"`
 	Default     string `yaml:"default" json:"default"`
@@ -489,6 +495,63 @@ type ConfigField struct {
 	// string; the form renders a dropdown and the dashboard validates
 	// that the chosen value is one of these. Ignored for other types.
 	Options []string `yaml:"options,omitempty" json:"options,omitempty"`
+
+	// RequiredIfRoleBound — name of an integration role from
+	// requires.integrations[].role. The field becomes required only
+	// when that role has a non-null binding. Lets a manifest mark
+	// `s3_bucket` required only when the optional `backend` role is
+	// bound, without forcing operators to fill in a bucket for the
+	// disk-backed install. Empty = unconditional (use Required
+	// instead).
+	RequiredIfRoleBound string `yaml:"required_if_role_bound,omitempty" json:"required_if_role_bound,omitempty"`
+
+	// IntegrationRole — for type=select_from_integration: which
+	// requires.integrations[].role to draw the discovery list from.
+	// The dashboard reads the connection bound to that role and
+	// invokes Discovery.Tool against it to populate the dropdown.
+	IntegrationRole string `yaml:"integration_role,omitempty" json:"integration_role,omitempty"`
+
+	// Discovery — for type=select_from_integration: how to ask the
+	// bound connection's API for the list of choices. Mirrors the
+	// catalog-level credential_group.discovery shape so manifest
+	// authors think in one mental model. Tool names a real entry
+	// in the bound app's tools[]; ResponsePath JSON-paths to the
+	// list inside the response (or "" for a flat array); ValueField
+	// + LabelField pick the dropdown's value/label from each item.
+	Discovery *ConfigFieldDiscovery `yaml:"discovery,omitempty" json:"discovery,omitempty"`
+
+	// Fallback — what to render when discovery fails (no binding,
+	// upstream returned an error, the response was empty, etc.).
+	// "text" → render a plain text input so the operator can type
+	// the value manually. Empty → just show the error message and
+	// disable the field.
+	Fallback string `yaml:"fallback,omitempty" json:"fallback,omitempty"`
+}
+
+// ConfigFieldDiscovery — the "fetch a list at install time"
+// declaration for type=select_from_integration. Same shape as
+// catalog-level credential_group.discovery but applied per
+// install field rather than per app suite.
+type ConfigFieldDiscovery struct {
+	// Tool to invoke against the bound connection. Must exist in
+	// the bound app's tools[] AND require zero arguments (the
+	// dashboard sends an empty input map). Typically a list_X /
+	// list_buckets / list_workspaces style endpoint.
+	Tool string `yaml:"tool" json:"tool"`
+	// JSON path into the response body to get the array of items.
+	// Dot-separated; "[]" steps into every element of an array.
+	// Empty string = the response itself is the array. Examples:
+	//   "ListAllMyBucketsResult.Buckets.Bucket"   (S3 XML)
+	//   "data"                                    (typical REST)
+	//   ""                                        (raw array)
+	ResponsePath string `yaml:"response_path,omitempty" json:"response_path,omitempty"`
+	// Field on each item to use as the dropdown's value (saved into
+	// config). Empty = use the item itself if it's a string,
+	// otherwise its first string field.
+	ValueField string `yaml:"value_field,omitempty" json:"value_field,omitempty"`
+	// Field on each item to use as the dropdown's label. Empty =
+	// same as value.
+	LabelField string `yaml:"label_field,omitempty" json:"label_field,omitempty"`
 }
 
 // UpgradePolicy is the per-install default; users can override in the
