@@ -469,6 +469,31 @@ type EnvFrom struct {
 // DBConfig describes the app's private database. Default driver is
 // sqlite; declare postgres to ask the orchestrator for a Postgres
 // schema. The platform runs migrations/* on first install.
+//
+// On-disk layout invariant (read this before adding any path that
+// looks like the version cleanup logic in
+// apps/source-installer):
+//
+//   apps/<name>/<version>/        — built source tree + binary; one
+//                                   per installed version, the
+//                                   prune sweep ages these out.
+//   apps/<name>/data/<install>/   — RESERVED for per-install
+//                                   persistent state (app.db,
+//                                   APTEVA_DATA_DIR contents). The
+//                                   platform sets DB_PATH and
+//                                   APTEVA_DATA_DIR to point here.
+//                                   MUST NOT be touched by any
+//                                   version-dir cleanup — destroying
+//                                   it silently wipes every install's
+//                                   SQLite DB (we shipped the bug,
+//                                   we shipped the fix in v0.14.3).
+//
+// If you add a new sibling under apps/<name>/, register it in
+// reservedAppSiblings in server/apps_source.go AND make sure its
+// name doesn't accidentally match the `^\d+\.\d+\.\d+(...)?$`
+// version pattern. Belt-and-suspenders: pattern guard rejects
+// non-semver names; allowlist catches anything that ever gets
+// through.
 type DBConfig struct {
 	Driver     string `yaml:"driver" json:"driver"` // sqlite | postgres
 	Path       string `yaml:"path" json:"path"`
