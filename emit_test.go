@@ -43,7 +43,7 @@ func TestEmit_PostsToCorrectURLWithToken(t *testing.T) {
 	defer ts.Close()
 
 	e := newHTTPEmitter(ts.URL, "tok-abc", silentLogger{})
-	e.Emit("file.added", map[string]any{"id": 7, "name": "x.pdf"})
+	e.EmitWithProject("file.added", "p-1", map[string]any{"id": 7, "name": "x.pdf"})
 
 	// Emit fans the request off in a goroutine — wait briefly.
 	if !waitFor(func() bool { return got.Load() != nil }, 500*time.Millisecond) {
@@ -62,6 +62,9 @@ func TestEmit_PostsToCorrectURLWithToken(t *testing.T) {
 	if g.body["topic"] != "file.added" {
 		t.Errorf("body.topic = %v", g.body["topic"])
 	}
+	if g.body["project_id"] != "p-1" {
+		t.Errorf("body.project_id = %v, want p-1", g.body["project_id"])
+	}
 	data, ok := g.body["data"].(map[string]any)
 	if !ok {
 		t.Fatalf("body.data not an object: %v", g.body["data"])
@@ -73,9 +76,9 @@ func TestEmit_PostsToCorrectURLWithToken(t *testing.T) {
 
 func TestEmit_NoOpWhenUnconfigured(t *testing.T) {
 	// All three: nil receiver, empty gateway, empty token.
-	(*httpEmitter)(nil).Emit("file.added", nil) // would panic without nil check
-	newHTTPEmitter("", "tok", silentLogger{}).Emit("file.added", nil)
-	newHTTPEmitter("https://example.invalid", "", silentLogger{}).Emit("file.added", nil)
+	(*httpEmitter)(nil).EmitWithProject("file.added", "", nil) // would panic without nil check
+	newHTTPEmitter("", "tok", silentLogger{}).EmitWithProject("file.added", "", nil)
+	newHTTPEmitter("https://example.invalid", "", silentLogger{}).EmitWithProject("file.added", "", nil)
 	// If we got here without panic + with no goroutines hung, we're good.
 }
 
@@ -86,8 +89,8 @@ func TestEmit_EmptyTopicDropped(t *testing.T) {
 	}))
 	defer ts.Close()
 	e := newHTTPEmitter(ts.URL, "tok", silentLogger{})
-	e.Emit("", nil)
-	e.Emit("   ", nil)
+	e.EmitWithProject("", "", nil)
+	e.EmitWithProject("   ", "", nil)
 	time.Sleep(150 * time.Millisecond)
 	if hit.Load() {
 		t.Fatal("empty topic should not produce a request")
@@ -107,7 +110,7 @@ func TestEmit_ServerHangsDoesNotBlockCaller(t *testing.T) {
 	defer ts.Close()
 	e := newHTTPEmitter(ts.URL, "tok", silentLogger{})
 	start := time.Now()
-	e.Emit("file.added", nil)
+	e.EmitWithProject("file.added", "", nil)
 	elapsed := time.Since(start)
 	if elapsed > 50*time.Millisecond {
 		t.Fatalf("Emit blocked caller for %v (must be fire-and-forget)", elapsed)
@@ -126,7 +129,7 @@ func TestEmit_NonJSONDataDoesNotPanic(t *testing.T) {
 	}))
 	defer ts.Close()
 	e := newHTTPEmitter(ts.URL, "tok", silentLogger{})
-	e.Emit("file.added", make(chan int))
+	e.EmitWithProject("file.added", "", make(chan int))
 	time.Sleep(150 * time.Millisecond)
 }
 

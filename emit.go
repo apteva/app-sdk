@@ -46,7 +46,12 @@ func newHTTPEmitter(gatewayURL, token string, logger Logger) *httpEmitter {
 	}
 }
 
-func (e *httpEmitter) Emit(topic string, data any) {
+// EmitWithProject sends an event whose project_id is set explicitly
+// on the wire. The server validates it against the install's scope
+// (project-scoped install → overridden to pinned project; global
+// install → validated against the install's owner). Passing "" emits
+// a wildcard-only event.
+func (e *httpEmitter) EmitWithProject(topic, projectID string, data any) {
 	// Skip silently when not configured — tests, manifests with no
 	// platform, dev runs against a stubbed harness.
 	if e == nil || e.gatewayURL == "" || e.token == "" {
@@ -55,14 +60,15 @@ func (e *httpEmitter) Emit(topic string, data any) {
 	if strings.TrimSpace(topic) == "" {
 		return
 	}
-	go e.send(topic, data)
+	go e.send(topic, projectID, data)
 }
 
-func (e *httpEmitter) send(topic string, data any) {
+func (e *httpEmitter) send(topic, projectID string, data any) {
 	body := struct {
-		Topic string `json:"topic"`
-		Data  any    `json:"data,omitempty"`
-	}{Topic: topic, Data: data}
+		Topic     string `json:"topic"`
+		ProjectID string `json:"project_id,omitempty"`
+		Data      any    `json:"data,omitempty"`
+	}{Topic: topic, ProjectID: projectID, Data: data}
 	buf, err := json.Marshal(body)
 	if err != nil {
 		e.logger.Warn("emit: marshal failed", "topic", topic, "err", err)

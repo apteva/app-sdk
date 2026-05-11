@@ -388,6 +388,13 @@ func (c *AppCtx) bindingsAndManifest() (map[string]any, *Manifest) {
 // prefix from the install token before fanning out. Data must be
 // JSON-encodable; pass nil if the topic alone is enough signal.
 //
+// The event is tagged with c.CurrentProject() as its project_id —
+// so emits from a per-request-scoped ctx (tool calls, event handlers,
+// worker ticks) automatically carry the right project even when the
+// install is global. Apps that need to emit on behalf of a different
+// project (e.g. storage processes a file in project X from a global
+// install's HTTP handler) should use EmitWithProject directly.
+//
 // Fire-and-forget: a 100ms timeout caps the publish, errors are
 // logged but never bubbled to the caller. UI fanout is best-effort
 // and the app's own DB is the source of truth — a missed event is a
@@ -400,14 +407,41 @@ func (c *AppCtx) Emit(topic string, data any) {
 	if c == nil || c.emitter == nil {
 		return
 	}
-	c.emitter.Emit(topic, data)
+	c.emitter.EmitWithProject(topic, c.CurrentProject(), data)
+}
+
+// EmitWithProject publishes an event tagged with an explicit
+// project_id, ignoring c.CurrentProject(). Use this when the project
+// the event belongs to is a property of the *data*, not the dispatch
+// context — e.g. storage's file event handlers run from an
+// unscoped ctx (HTTP route) but the file's project_id is on the row.
+//
+// For project-scoped installs the platform enforces the install's
+// pinned project on the server side, so a project_id argument that
+// disagrees is silently overridden (you can't spoof outside your
+// scope). Global installs may emit for any project the install's
+// owner has access to.
+//
+// Passing projectID="" emits a project-less event — lands on the
+// wildcard lane only. Use sparingly; most domain events belong to
+// a project.
+func (c *AppCtx) EmitWithProject(topic, projectID string, data any) {
+	if c == nil || c.emitter == nil {
+		return
+	}
+	c.emitter.EmitWithProject(topic, projectID, data)
 }
 
 // Emitter is the indirection between AppCtx and the HTTP-based emit
 // implementation in run.go. Exposed so app-sdk/testkit can stub it
 // with an in-memory recorder for assertions.
+//
+// EmitWithProject carries an explicit project_id on the wire. The
+// HTTP transport encodes it into the emit body so the platform
+// stamps the (app, project) lane correctly even when the install is
+// global. Passing projectID="" yields a project-less event.
 type Emitter interface {
-	Emit(topic string, data any)
+	EmitWithProject(topic, projectID string, data any)
 }
 
 // SetEmitter swaps the AppCtx's event emitter — only valid for

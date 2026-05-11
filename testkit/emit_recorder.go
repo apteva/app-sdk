@@ -17,10 +17,13 @@ import (
 
 // EmittedEvent is one captured Emit() call. The data payload is
 // stored as `any` since the SDK doesn't constrain it; tests cast as
-// needed.
+// needed. ProjectID carries the value the AppCtx or caller threaded
+// through EmitWithProject — empty for ctx.Emit() from an unscoped
+// AppCtx.
 type EmittedEvent struct {
-	Topic string
-	Data  any
+	Topic     string
+	ProjectID string
+	Data      any
 }
 
 // EmitRecorder implements sdk.Emitter and stores every call. Get a
@@ -36,10 +39,10 @@ func NewEmitRecorder() *EmitRecorder {
 	return &EmitRecorder{signal: make(chan struct{})}
 }
 
-// Emit captures the call. Never blocks.
-func (r *EmitRecorder) Emit(topic string, data any) {
+// EmitWithProject captures the call with its project id. Never blocks.
+func (r *EmitRecorder) EmitWithProject(topic, projectID string, data any) {
 	r.mu.Lock()
-	r.events = append(r.events, EmittedEvent{Topic: topic, Data: data})
+	r.events = append(r.events, EmittedEvent{Topic: topic, ProjectID: projectID, Data: data})
 	old := r.signal
 	r.signal = make(chan struct{})
 	r.mu.Unlock()
