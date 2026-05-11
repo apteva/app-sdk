@@ -69,6 +69,48 @@ type Requires struct {
 	// at runtime via ctx.IntegrationFor(role) and never sees raw
 	// credentials. See IntegrationDep below.
 	Integrations []IntegrationDep `yaml:"integrations,omitempty" json:"integrations,omitempty"`
+	// Binaries declares native executables the app needs at runtime
+	// (ffmpeg, ffprobe, …). The platform downloads + extracts each
+	// dep into a shared cache (~/.apteva/binaries/<name>-<version>-<os>-<arch>/)
+	// and prepends that directory to the sidecar's PATH, so the
+	// app's existing exec.LookPath / exec.Command calls resolve to
+	// the bundled binary. Apps without a binaries block keep relying
+	// on the host's PATH as before.
+	Binaries []BinaryDep `yaml:"binaries,omitempty" json:"binaries,omitempty"`
+}
+
+// BinaryDep declares one native executable (or a set of related
+// executables shipped together in the same archive — e.g. ffmpeg +
+// ffprobe) that the platform materializes on the host before
+// spawning the sidecar.
+//
+// Version is pinned: no "latest". The trust anchor is the SHA256 in
+// each BinarySource; the manifest lives in the app's git repo, which
+// the platform already trusts (it builds the app from there).
+type BinaryDep struct {
+	Name        string                  `yaml:"name" json:"name"`
+	Version     string                  `yaml:"version" json:"version"`
+	Executables []string                `yaml:"executables,omitempty" json:"executables,omitempty"`
+	// Sources maps "<os>-<arch>" (e.g. "linux-amd64") to a per-platform
+	// download descriptor. A missing entry for the runtime platform
+	// causes install to fail when Required=true, or silently skip the
+	// dep when Required=false.
+	Sources  map[string]BinarySource `yaml:"sources" json:"sources"`
+	Required bool                    `yaml:"required,omitempty" json:"required,omitempty"`
+	Hint     string                  `yaml:"hint,omitempty" json:"hint,omitempty"`
+}
+
+// BinarySource is one platform's download descriptor.
+//
+//   - Archive selects the unpacker: "tar.xz" | "tar.gz" | "zip" |
+//     "raw" (body is the binary itself).
+//   - StripRoot peels N top-level directory components off the
+//     extracted tree, mirroring tar's --strip-components.
+type BinarySource struct {
+	URL       string `yaml:"url" json:"url"`
+	SHA256    string `yaml:"sha256" json:"sha256"`
+	Archive   string `yaml:"archive,omitempty" json:"archive,omitempty"`
+	StripRoot int    `yaml:"strip_root,omitempty" json:"strip_root,omitempty"`
 }
 
 // IntegrationDep declares one role the app needs filled. Two kinds:
