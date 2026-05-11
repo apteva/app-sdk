@@ -240,6 +240,111 @@ func (c *httpPlatformClient) GetConnectionCredentials(id int64) (*ConnectionCred
 	return &out, nil
 }
 
+func (c *httpPlatformClient) ListProjects() ([]PlatformProject, error) {
+	var out []PlatformProject
+	if err := c.get("/api/apps/callback/projects", &out); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// projectScopedClient wraps a PlatformClient so CallApp / CallAppResult
+// auto-thread `_project_id` into the input map when the caller hasn't
+// supplied one. Used by AppCtx.WithProject — apps' worker code calling
+// `ctx.PlatformAPI().CallAppResult("storage", "files_list", args, &out)`
+// from a global install thus carries the dispatcher's current project
+// without anyone touching the call site.
+//
+// Every other method passes straight through — the project hint
+// affects only the two app-to-app entry points, which are the only
+// surface where downstream code needs to know which project the call
+// is on behalf of.
+type projectScopedClient struct {
+	inner     PlatformClient
+	projectID string
+}
+
+func wrapPlatformWithProject(inner PlatformClient, projectID string) PlatformClient {
+	if projectID == "" || inner == nil {
+		return inner
+	}
+	// Avoid re-wrapping if the inner client already has the same
+	// project pinned — idempotent under repeated WithProject calls.
+	if existing, ok := inner.(*projectScopedClient); ok && existing.projectID == projectID {
+		return existing
+	}
+	return &projectScopedClient{inner: inner, projectID: projectID}
+}
+
+func (p *projectScopedClient) withProject(input map[string]any) map[string]any {
+	if input == nil {
+		return map[string]any{"_project_id": p.projectID}
+	}
+	if _, set := input["_project_id"]; set {
+		return input
+	}
+	cp := make(map[string]any, len(input)+1)
+	for k, v := range input {
+		cp[k] = v
+	}
+	cp["_project_id"] = p.projectID
+	return cp
+}
+
+func (p *projectScopedClient) CallApp(appName, tool string, input map[string]any) (json.RawMessage, error) {
+	return p.inner.CallApp(appName, tool, p.withProject(input))
+}
+
+func (p *projectScopedClient) CallAppResult(appName, tool string, input map[string]any, out any) error {
+	return p.inner.CallAppResult(appName, tool, p.withProject(input), out)
+}
+
+// Pass-throughs for every other method.
+
+func (p *projectScopedClient) GetConnection(id int64) (*PlatformConnection, error) {
+	return p.inner.GetConnection(id)
+}
+func (p *projectScopedClient) ListConnections(f ConnectionFilter) ([]PlatformConnection, error) {
+	return p.inner.ListConnections(f)
+}
+func (p *projectScopedClient) GetInstance(id int64) (*PlatformInstance, error) {
+	return p.inner.GetInstance(id)
+}
+func (p *projectScopedClient) SendEvent(instanceID int64, message string) error {
+	return p.inner.SendEvent(instanceID, message)
+}
+func (p *projectScopedClient) SendToChannel(channelName, projectID, message string) error {
+	if projectID == "" {
+		projectID = p.projectID
+	}
+	return p.inner.SendToChannel(channelName, projectID, message)
+}
+func (p *projectScopedClient) WhoAmI() (*InstallIdentity, error) { return p.inner.WhoAmI() }
+func (p *projectScopedClient) ExecuteIntegrationTool(connID int64, tool string, input map[string]any) (*ExecuteResult, error) {
+	return p.inner.ExecuteIntegrationTool(connID, tool, input)
+}
+func (p *projectScopedClient) StartOAuth(req OAuthStartRequest) (*OAuthStartResult, error) {
+	if req.ProjectID == "" {
+		req.ProjectID = p.projectID
+	}
+	return p.inner.StartOAuth(req)
+}
+func (p *projectScopedClient) DisconnectConnection(connID int64) error {
+	return p.inner.DisconnectConnection(connID)
+}
+func (p *projectScopedClient) ListOwnedConnections() ([]PlatformConnection, error) {
+	return p.inner.ListOwnedConnections()
+}
+func (p *projectScopedClient) GetGrants(instanceID int64) (*GrantsResponse, error) {
+	return p.inner.GetGrants(instanceID)
+}
+func (p *projectScopedClient) GetConnectionCredentials(id int64) (*ConnectionCredentials, error) {
+	return p.inner.GetConnectionCredentials(id)
+}
+func (p *projectScopedClient) ListProjects() ([]PlatformProject, error) {
+	return p.inner.ListProjects()
+}
+
 // --- low-level helpers -------------------------------------------------------
 
 func (c *httpPlatformClient) get(path string, out any) error {

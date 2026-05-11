@@ -130,14 +130,26 @@ type ChannelMessage struct {
 // import apteva-server directly — they call into AppCtx and the
 // framework round-trips to the platform over HTTP using the app's
 // short-lived APTEVA_APP_TOKEN.
+//
+// Project context. AppCtx carries an optional "current project" — the
+// project the dispatch is running for. For project-scoped installs the
+// SDK seeds it from APTEVA_PROJECT_ID at boot, so CurrentProject()
+// returns that value across every worker tick / event handler / tool
+// call. For global installs APTEVA_PROJECT_ID is empty; the SDK's
+// worker dispatcher derives one AppCtx per project per tick via
+// WithProject, so the worker body sees the project it's currently
+// operating on. App code should always prefer ctx.CurrentProject()
+// over reading the env directly — that's the single hook that makes
+// a global install behave correctly.
 type AppCtx struct {
-	manifest *Manifest
-	cfg      Config
-	db       *sql.DB
-	platform PlatformClient
-	logger   Logger
-	cancel   <-chan struct{}
-	emitter  Emitter
+	manifest       *Manifest
+	cfg            Config
+	db             *sql.DB
+	platform       PlatformClient
+	logger         Logger
+	cancel         <-chan struct{}
+	emitter        Emitter
+	currentProject string // "" until WithProject is called or env seeds it
 }
 
 // AppDB is the app's private database handle, opened by the framework
@@ -198,6 +210,48 @@ func (c *AppCtx) DataDir() string {
 // Done returns a channel that closes when the platform asks the
 // sidecar to shut down. Long-running workers should select on it.
 func (c *AppCtx) Done() <-chan struct{} { return c.cancel }
+
+// CurrentProject returns the project the current dispatch is running
+// for. Resolution order:
+//
+//  1. The value set via WithProject (worker tick, event handler, tool
+//     call with _project_id resolved by the framework)
+//  2. APTEVA_PROJECT_ID env (project-scoped installs)
+//  3. "" — global install with no per-call project context
+//
+// App code should call this in place of os.Getenv("APTEVA_PROJECT_ID")
+// — it's the single API that makes global installs behave correctly.
+// A returned "" means "the framework didn't dispatch this call against
+// any project"; for global apps that's a bug to flag, not silently
+// no-op.
+func (c *AppCtx) CurrentProject() string {
+	if c == nil {
+		return ""
+	}
+	if c.currentProject != "" {
+		return c.currentProject
+	}
+	return os.Getenv("APTEVA_PROJECT_ID")
+}
+
+// WithProject returns an AppCtx whose CurrentProject() returns the
+// given project id, leaving every other field shared with the parent.
+// Use it to pin a project on cross-call boundaries (e.g. the SDK's
+// worker dispatcher does this once per project per tick). The
+// PlatformClient handle is wrapped so subsequent CallApp / CallAppResult
+// invocations auto-thread `_project_id` into the downstream args —
+// global apps' workers don't have to thread project context manually.
+//
+// Passing "" reverts to env-driven behaviour.
+func (c *AppCtx) WithProject(projectID string) *AppCtx {
+	if c == nil {
+		return nil
+	}
+	cp := *c
+	cp.currentProject = projectID
+	cp.platform = wrapPlatformWithProject(c.platform, projectID)
+	return &cp
+}
 
 // IntegrationFor returns the binding for a role declared in the
 // manifest's requires.integrations. Returns nil when:
@@ -515,6 +569,29 @@ type PlatformClient interface {
 	//   3. The connection ID is in the install's integration_bindings
 	//      for one of those roles (operator actually bound it).
 	GetConnectionCredentials(id int64) (*ConnectionCredentials, error)
+
+	// ListProjects returns the projects this install can dispatch
+	// against. For project-scoped installs that's a singleton list
+	// holding the install's pinned project. For global installs it's
+	// every project the install's owner has access to. The SDK's
+	// worker loop calls this once per tick to fan workers out per
+	// project; apps that hand-roll dispatch (custom polling, custom
+	// SSE subscriptions) can call it too.
+	//
+	// Authorization: no manifest permission required — every install
+	// is allowed to enumerate its own projection. The list is filtered
+	// server-side by ownership.
+	ListProjects() ([]PlatformProject, error)
+}
+
+// PlatformProject is the minimal project descriptor PlatformClient.ListProjects
+// returns. Apps that need richer per-project metadata (description,
+// settings, …) should query WhoAmI per project, but for the common
+// "loop over my projects and call storage once per project" use case
+// ID + Name is enough.
+type PlatformProject struct {
+	ID   string `json:"id"`
+	Name string `json:"name"`
 }
 
 // GrantsResponse is what GetGrants returns. DefaultEffect is the

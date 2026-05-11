@@ -99,3 +99,12 @@ func (BasePlatformClient) GetGrants(int64) (*sdk.GrantsResponse, error) {
 func (BasePlatformClient) GetConnectionCredentials(int64) (*sdk.ConnectionCredentials, error) {
 	return nil, ErrNotImplemented
 }
+
+// ListProjects defaults to a singleton list holding the project_id
+// pinned via tk.WithProject — that's the project the test's AppCtx
+// is running against. Tests that exercise the per-project dispatch
+// path (global installs iterating projects) override this and return
+// the project set they want the SDK to fan out across.
+func (BasePlatformClient) ListProjects() ([]sdk.PlatformProject, error) {
+	return nil, ErrNotImplemented
+}

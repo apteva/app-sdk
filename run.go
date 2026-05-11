@@ -237,6 +237,11 @@ func mountFrameworkRoutes(mux *http.ServeMux, app App, ctx *AppCtx) {
 
 	// Event ingestion — the platform POSTs platform events here and
 	// the framework dispatches to the app's EventHandlers.
+	//
+	// The handler's AppCtx has CurrentProject() pinned to the event's
+	// project_id, so global apps subscribing to a multi-project topic
+	// stream see each event in the right project context without
+	// hand-threading.
 	mux.HandleFunc("/events", func(w http.ResponseWriter, req *http.Request) {
 		if req.Method != http.MethodPost {
 			http.Error(w, "POST only", http.StatusMethodNotAllowed)
@@ -247,12 +252,16 @@ func mountFrameworkRoutes(mux *http.ServeMux, app App, ctx *AppCtx) {
 			http.Error(w, "invalid json", http.StatusBadRequest)
 			return
 		}
+		evCtx := ctx
+		if ev.ProjectID != "" {
+			evCtx = ctx.WithProject(ev.ProjectID)
+		}
 		for _, h := range app.EventHandlers() {
 			if h.Topic != ev.Topic && h.Topic != "*" {
 				continue
 			}
-			if err := h.Handler(ctx, ev); err != nil {
-				ctx.Logger().Warn("event handler error", "topic", ev.Topic, "err", err)
+			if err := h.Handler(evCtx, ev); err != nil {
+				evCtx.Logger().Warn("event handler error", "topic", ev.Topic, "err", err)
 			}
 		}
 		w.WriteHeader(http.StatusNoContent)
@@ -261,12 +270,37 @@ func mountFrameworkRoutes(mux *http.ServeMux, app App, ctx *AppCtx) {
 
 // runWorker drives one Worker entry — periodic if Schedule is set,
 // one-shot otherwise. Cancellation honours ctx.
+//
+// Project dispatch. Workers run once per project per tick:
+//
+//   - Project-scoped install (APTEVA_PROJECT_ID set): a single-project
+//     list — the worker behaves identically to pre-dispatch SDK.
+//   - Global install (APTEVA_PROJECT_ID empty): the SDK calls
+//     ListProjects() once per tick and runs the worker body once per
+//     returned project, each invocation getting an AppCtx whose
+//     CurrentProject() returns that project's id.
+//
+// Apps that read os.Getenv("APTEVA_PROJECT_ID") still see "" under
+// global — env can't be set per-goroutine — but ctx.CurrentProject()
+// returns the dispatched project. Migrating an app to global-safe
+// is therefore a search-and-replace from env to CurrentProject.
 func runWorker(ctx context.Context, w Worker, app *AppCtx, logger Logger) {
-	if w.Schedule == "" {
-		// One-shot. Run once.
-		if err := w.Run(ctx, app); err != nil && ctx.Err() == nil {
-			logger.Warn("worker exited", "name", w.Name, "err", err)
+	dispatch := func(ctx context.Context) {
+		projects := dispatchProjects(app, logger)
+		for _, pid := range projects {
+			scoped := app
+			if pid != "" {
+				scoped = app.WithProject(pid)
+			}
+			if err := w.Run(ctx, scoped); err != nil && ctx.Err() == nil {
+				logger.Warn("worker tick error", "name", w.Name, "project", pid, "err", err)
+			}
 		}
+	}
+
+	if w.Schedule == "" {
+		// One-shot. Run once per project.
+		dispatch(ctx)
 		return
 	}
 	interval, err := parseSchedule(w.Schedule)
@@ -281,11 +315,51 @@ func runWorker(ctx context.Context, w Worker, app *AppCtx, logger Logger) {
 		case <-ctx.Done():
 			return
 		case <-t.C:
-			if err := w.Run(ctx, app); err != nil && ctx.Err() == nil {
-				logger.Warn("worker tick error", "name", w.Name, "err", err)
-			}
+			dispatch(ctx)
 		}
 	}
+}
+
+// dispatchProjects decides which projects this tick should run for.
+//
+//   - APTEVA_PROJECT_ID set → singleton, that project.
+//   - empty (global install) → ListProjects() from the platform.
+//     A failed call yields a single empty-project tick so a
+//     transient platform outage doesn't entirely silence the
+//     worker; the worker body sees CurrentProject()=="" and can
+//     choose to skip or proceed.
+func dispatchProjects(app *AppCtx, logger Logger) []string {
+	if app == nil {
+		return []string{""}
+	}
+	if pid := strings.TrimSpace(os.Getenv("APTEVA_PROJECT_ID")); pid != "" {
+		return []string{pid}
+	}
+	if app.platform == nil {
+		return []string{""}
+	}
+	projects, err := app.platform.ListProjects()
+	if err != nil {
+		logger.Warn("ListProjects failed; running once with empty project", "err", err)
+		return []string{""}
+	}
+	if len(projects) == 0 {
+		// No projects yet (fresh install, operator hasn't created
+		// any). One empty-project tick keeps the worker alive
+		// without doing per-project work.
+		return []string{""}
+	}
+	ids := make([]string, 0, len(projects))
+	for _, p := range projects {
+		if p.ID == "" {
+			continue
+		}
+		ids = append(ids, p.ID)
+	}
+	if len(ids) == 0 {
+		return []string{""}
+	}
+	return ids
 }
 
 // parseSchedule supports the "@every <duration>" syntax for now. Real
@@ -492,15 +566,24 @@ func (h *mcpHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 
 		callCtx := WithCaller(r.Context(), caller)
+		// Pin the AppCtx's CurrentProject to whatever the caller
+		// supplied as _project_id, so handlers reading
+		// app.CurrentProject() see the right project even on a global
+		// install. resolveProjectFromArgs in app code is still the
+		// final word — this is for the SDK's own threading.
+		handlerCtx := h.ctx
+		if pid, ok := args["_project_id"].(string); ok && pid != "" {
+			handlerCtx = h.ctx.WithProject(pid)
+		}
 		var (
 			res any
 			err error
 		)
 		switch {
 		case matched.HandlerCtx != nil:
-			res, err = matched.HandlerCtx(callCtx, h.ctx, args)
+			res, err = matched.HandlerCtx(callCtx, handlerCtx, args)
 		case matched.Handler != nil:
-			res, err = matched.Handler(h.ctx, args)
+			res, err = matched.Handler(handlerCtx, args)
 		default:
 			writeMCPErr(w, req.ID, -32603, "tool "+name+": no handler registered")
 			return
