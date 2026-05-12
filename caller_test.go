@@ -270,9 +270,9 @@ func TestCallerFromContext(t *testing.T) {
 	if got := CallerFrom(context.Background()); got != nil {
 		t.Fatal("bare context should return nil caller")
 	}
-	c := &Caller{InstanceID: 7}
+	c := &Caller{AgentID: 7}
 	got := CallerFrom(WithCaller(context.Background(), c))
-	if got == nil || got.InstanceID != 7 {
+	if got == nil || got.AgentID != 7 {
 		t.Fatalf("got %+v", got)
 	}
 }

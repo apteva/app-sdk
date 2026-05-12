@@ -531,8 +531,12 @@ type PlatformClient interface {
 	GetConnection(id int64) (*PlatformConnection, error)
 	ListConnections(filter ConnectionFilter) ([]PlatformConnection, error)
 
-	// Instances
+	// Agents — GetAgent is the canonical post-rename name. GetInstance
+	// stays as an alias so apps + test stubs that haven't migrated
+	// keep compiling; both return the same struct (PlatformAgent is a
+	// type alias for PlatformInstance).
 	GetInstance(id int64) (*PlatformInstance, error)
+	GetAgent(id int64) (*PlatformAgent, error)
 	SendEvent(instanceID int64, message string) error
 
 	// Channels

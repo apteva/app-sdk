@@ -8,19 +8,19 @@ import (
 )
 
 // Caller is the per-MCP-call authorization context. It carries the
-// calling agent's instance id and the grants the platform issued for
-// this (install, instance) pair. Tool handlers retrieve it via
-// CallerFrom(ctx) inside a HandlerCtx.
+// calling agent's id and the grants the platform issued for this
+// (install, agent) pair. Tool handlers retrieve it via CallerFrom(ctx)
+// inside a HandlerCtx.
 //
 // A nil Caller means "no caller info was supplied" — the SDK treats
 // this as full access (back-compat with platforms that don't yet
-// forward the X-Apteva-Caller-Instance header). Apps that want to
-// fail closed on missing caller info should check for nil explicitly.
+// forward the X-Apteva-Caller-Agent header). Apps that want to fail
+// closed on missing caller info should check for nil explicitly.
 type Caller struct {
-	// InstanceID is the calling agent's id. Zero when no caller info
-	// was supplied.
-	InstanceID int64
-	// Grants is the policy fetched for (this install, this instance).
+	// AgentID is the calling agent's id. Zero when no caller info was
+	// supplied.
+	AgentID int64
+	// Grants is the policy fetched for (this install, this agent).
 	// Nil + non-nil with len 0 are the same — both mean "no rules";
 	// the install's DefaultEffect determines whether that's allow or
 	// deny.

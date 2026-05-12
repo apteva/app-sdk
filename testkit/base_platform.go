@@ -53,6 +53,12 @@ func (BasePlatformClient) GetInstance(int64) (*sdk.PlatformInstance, error) {
 	return nil, ErrNotImplemented
 }
 
+// GetAgent is the post-rename alias for GetInstance. Embedded tests
+// get both methods for free; only one default body is needed.
+func (BasePlatformClient) GetAgent(int64) (*sdk.PlatformAgent, error) {
+	return nil, ErrNotImplemented
+}
+
 func (BasePlatformClient) SendEvent(int64, string) error {
 	return ErrNotImplemented
 }

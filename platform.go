@@ -69,15 +69,25 @@ func (c *httpPlatformClient) ListConnections(filter ConnectionFilter) ([]Platfor
 }
 
 func (c *httpPlatformClient) GetInstance(id int64) (*PlatformInstance, error) {
+	// Hit the canonical /agents/<id> callback path; the server's
+	// Phase 2 alias makes /instances/<id> work just as well, but new
+	// SDK code uses the new vocabulary.
 	var out PlatformInstance
-	if err := c.get("/api/apps/callback/instances/"+strconv.FormatInt(id, 10), &out); err != nil {
+	if err := c.get("/api/apps/callback/agents/"+strconv.FormatInt(id, 10), &out); err != nil {
 		return nil, err
 	}
 	return &out, nil
 }
 
+// GetAgent is the agent-vocabulary alias for GetInstance. Both methods
+// return the same PlatformInstance / PlatformAgent struct (type alias)
+// and hit the same platform endpoint. New code should prefer GetAgent.
+func (c *httpPlatformClient) GetAgent(id int64) (*PlatformAgent, error) {
+	return c.GetInstance(id)
+}
+
 func (c *httpPlatformClient) SendEvent(instanceID int64, message string) error {
-	return c.post("/api/apps/callback/instances/"+strconv.FormatInt(instanceID, 10)+"/event",
+	return c.post("/api/apps/callback/agents/"+strconv.FormatInt(instanceID, 10)+"/event",
 		map[string]any{"message": message}, nil)
 }
 
@@ -309,6 +319,9 @@ func (p *projectScopedClient) ListConnections(f ConnectionFilter) ([]PlatformCon
 }
 func (p *projectScopedClient) GetInstance(id int64) (*PlatformInstance, error) {
 	return p.inner.GetInstance(id)
+}
+func (p *projectScopedClient) GetAgent(id int64) (*PlatformAgent, error) {
+	return p.inner.GetAgent(id)
 }
 func (p *projectScopedClient) SendEvent(instanceID int64, message string) error {
 	return p.inner.SendEvent(instanceID, message)

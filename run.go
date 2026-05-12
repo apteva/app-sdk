@@ -539,7 +539,8 @@ func (h *mcpHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		// Build a Caller from the X-Apteva-Caller-Instance header.
+		// Build a Caller from the X-Apteva-Caller-Agent header
+		// (legacy: X-Apteva-Caller-Instance).
 		// When the header is absent (back-compat: older platforms
 		// that don't forward it, dev curl, etc.) caller is nil and
 		// the gate degrades to "allow" — same as today.
@@ -610,11 +611,19 @@ func (h *mcpHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 }
 
 // buildCaller materializes a Caller from request headers. Returns nil
-// when X-Apteva-Caller-Instance is absent — the SDK treats nil as
-// "no caller info, allow everything" so apps that haven't opted in
-// keep working through platforms that do forward the header.
+// when neither X-Apteva-Caller-Agent nor X-Apteva-Caller-Instance is
+// present — the SDK treats nil as "no caller info, allow everything"
+// so apps that haven't opted in keep working through platforms that
+// do forward the header.
+//
+// X-Apteva-Caller-Agent is the canonical post-rename header name;
+// the legacy X-Apteva-Caller-Instance still works during the
+// deprecation window. Whichever the upstream forwards wins.
 func (h *mcpHandler) buildCaller(r *http.Request) *Caller {
-	raw := r.Header.Get("X-Apteva-Caller-Instance")
+	raw := r.Header.Get("X-Apteva-Caller-Agent")
+	if raw == "" {
+		raw = r.Header.Get("X-Apteva-Caller-Instance")
+	}
 	if raw == "" {
 		return nil
 	}
@@ -627,7 +636,7 @@ func (h *mcpHandler) buildCaller(r *http.Request) *Caller {
 		resp = &GrantsResponse{DefaultEffect: "allow"}
 	}
 	return &Caller{
-		InstanceID:    id,
+		AgentID:       id,
 		Grants:        resp.Grants,
 		DefaultEffect: resp.DefaultEffect,
 		Resources:     h.ctx.Manifest().Provides.Resources,
