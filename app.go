@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -383,6 +384,21 @@ func (c *AppCtx) bindingsAndManifest() (map[string]any, *Manifest) {
 	return id.Bindings, c.manifest
 }
 
+// GetAgent fetches the platform agent (formerly "instance") identified
+// by id, going through the SDK's PlatformClient. This is a thin
+// convenience that delegates to PlatformAPI().GetInstance — adding it
+// to AppCtx instead of the PlatformClient interface keeps every
+// PlatformClient stub in app test suites valid without forcing a
+// method-add migration. New app code should prefer ctx.GetAgent(id)
+// over the older ctx.PlatformAPI().GetInstance(id); the latter stays
+// available until Phase 4.
+func (c *AppCtx) GetAgent(id int64) (*PlatformAgent, error) {
+	if c == nil || c.platform == nil {
+		return nil, errors.New("no platform client")
+	}
+	return c.platform.GetInstance(id)
+}
+
 // Emit publishes an event onto the platform's app-event bus. Topic is
 // app-relative (e.g. "file.added") — the platform stamps the app
 // prefix from the install token before fanning out. Data must be
@@ -708,6 +724,19 @@ type PlatformInstance struct {
 	Mode      string `json:"mode"`
 	ProjectID string `json:"project_id"`
 }
+
+// PlatformAgent is the canonical type name for the entity formerly
+// called PlatformInstance. The platform's user-facing concept is an
+// "agent" (a running, named, threadable apteva-core child process);
+// internal code is converging on that vocabulary across server,
+// dashboard, SDK, and apps. This alias lets new app code reference
+// PlatformAgent while existing apps using PlatformInstance keep
+// compiling unchanged — both names denote the same struct.
+//
+// Phase 4 of the rename (one release after every consumer has had
+// time to switch) drops the PlatformInstance name; until then both
+// are first-class. Use PlatformAgent in new code.
+type PlatformAgent = PlatformInstance
 
 // InstallIdentity — what the app is and where it sits, returned by
 // WhoAmI(). Useful when an app wants to log its own install id without
