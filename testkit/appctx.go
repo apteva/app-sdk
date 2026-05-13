@@ -60,13 +60,30 @@ func NewAppCtx(t *testing.T, manifestPath string, opts ...Option) *sdk.AppCtx {
 	// nested query (or even a sequential one routed to a different
 	// pooled connection) will see an empty schema. SetMaxOpenConns(1)
 	// pins everything to the same connection that ran the migrations.
-	db, err := sql.Open("sqlite", ":memory:?_journal_mode=WAL&_busy_timeout=2000")
+	// modernc.org/sqlite ignores `_journal_mode=…` / `_foreign_keys=…`
+	// (those are mattn/go-sqlite3 syntax) — use `_pragma=` so the
+	// settings actually take. journal_mode=WAL is a no-op for :memory:
+	// (in-memory DBs are always "memory" mode), so we only set the
+	// pragmas that matter here: foreign_keys for cascade correctness
+	// and busy_timeout for symmetry with prod.
+	db, err := sql.Open("sqlite", ":memory:?_pragma=foreign_keys(on)&_pragma=busy_timeout(2000)")
 	if err != nil {
 		t.Fatalf("testkit: open sqlite: %v", err)
 	}
 	db.SetMaxOpenConns(1)
 	if err := db.Ping(); err != nil {
 		t.Fatalf("testkit: ping sqlite: %v", err)
+	}
+	// Assert FK enforcement is actually on. If the driver swaps or the
+	// DSN drifts, fail loudly here rather than silently passing tests
+	// that depend on ON DELETE CASCADE — the prod bug this guards
+	// against was exactly that: cascades declared but not enforced.
+	var fk int
+	if err := db.QueryRow("PRAGMA foreign_keys").Scan(&fk); err != nil {
+		t.Fatalf("testkit: read foreign_keys pragma: %v", err)
+	}
+	if fk != 1 {
+		t.Fatalf("testkit: foreign_keys=%d, want 1 (DSN syntax mismatch?)", fk)
 	}
 	t.Cleanup(func() { _ = db.Close() })
 

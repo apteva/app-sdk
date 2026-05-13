@@ -729,12 +729,30 @@ func openAppDB(cfg *DBConfig, logger Logger) (*sql.DB, error) {
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		return nil, err
 	}
-	db, err := sql.Open("sqlite", "file:"+path+"?_journal_mode=WAL&_busy_timeout=5000")
+	// Safety pragmas must use modernc.org/sqlite's `_pragma=` DSN syntax —
+	// the mattn/go-sqlite3 forms `_journal_mode=…` and `_foreign_keys=…` are
+	// silently ignored by modernc, which is how `ON DELETE CASCADE` and WAL
+	// were no-ops in prod for months before this was caught. `_pragma=` runs
+	// the listed pragma on every new pool connection, which matters because
+	// `foreign_keys` and `busy_timeout` are per-connection state in SQLite.
+	db, err := sql.Open("sqlite", "file:"+path+
+		"?_pragma=journal_mode(WAL)"+
+		"&_pragma=busy_timeout(5000)"+
+		"&_pragma=foreign_keys(on)")
 	if err != nil {
 		return nil, err
 	}
 	if err := db.Ping(); err != nil {
 		return nil, err
+	}
+	// Verify the pragmas actually took. The DSN claims them, but if the
+	// driver is swapped, the syntax drifts, or someone refactors the open
+	// path, we want a loud failure here rather than another months-long
+	// silent no-op. Each PRAGMA query may land on a different pool
+	// connection — that's fine, all conns are configured the same way.
+	if err := assertSQLitePragmas(db); err != nil {
+		_ = db.Close()
+		return nil, fmt.Errorf("openAppDB %s: %w", path, err)
 	}
 	// Recycle pooled connections so they can't pin a stale inode forever.
 	//
@@ -778,6 +796,37 @@ func openAppDB(cfg *DBConfig, logger Logger) (*sql.DB, error) {
 		}
 	}
 	return db, nil
+}
+
+// assertSQLitePragmas reads back the safety pragmas openAppDB tries to
+// set and returns an error if any didn't take. Catches the class of
+// bugs where DSN syntax silently mismatches the driver — historically
+// modernc.org/sqlite ignored every mattn-style `_journal_mode=…`,
+// `_busy_timeout=…`, `_foreign_keys=…` query param in our DSN, so FK
+// enforcement and WAL were both off in prod for months.
+func assertSQLitePragmas(db *sql.DB) error {
+	var journal string
+	if err := db.QueryRow("PRAGMA journal_mode").Scan(&journal); err != nil {
+		return fmt.Errorf("PRAGMA journal_mode: %w", err)
+	}
+	if strings.ToLower(journal) != "wal" {
+		return fmt.Errorf("journal_mode=%q, want wal", journal)
+	}
+	var busy int
+	if err := db.QueryRow("PRAGMA busy_timeout").Scan(&busy); err != nil {
+		return fmt.Errorf("PRAGMA busy_timeout: %w", err)
+	}
+	if busy < 1000 {
+		return fmt.Errorf("busy_timeout=%d, want >=1000ms", busy)
+	}
+	var fk int
+	if err := db.QueryRow("PRAGMA foreign_keys").Scan(&fk); err != nil {
+		return fmt.Errorf("PRAGMA foreign_keys: %w", err)
+	}
+	if fk != 1 {
+		return fmt.Errorf("foreign_keys=%d, want 1 — ON DELETE CASCADE will silently no-op", fk)
+	}
+	return nil
 }
 
 func runMigrations(db *sql.DB, dir string, logger Logger) error {

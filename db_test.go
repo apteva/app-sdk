@@ -123,6 +123,84 @@ func TestWatchDBInode_FullLoopFiresWarning(t *testing.T) {
 	}
 }
 
+func TestOpenAppDB_ForeignKeyCascadeFires(t *testing.T) {
+	// Regression test for the silent-FK-no-op bug. For months our
+	// DSN used mattn/go-sqlite3 syntax (`_foreign_keys=on`) which
+	// modernc.org/sqlite silently ignores, so every `ON DELETE CASCADE`
+	// declared by any app was a no-op. The tables app surfaced this
+	// when SQLite reused a dropped table's id and the new table
+	// "inherited" the dead parent's columns_meta rows.
+	//
+	// This test pins the contract: openAppDB must return a *sql.DB
+	// where FK enforcement is actually on, so cascades fire.
+	dir := t.TempDir()
+	cfg := &DBConfig{Driver: "sqlite", Path: filepath.Join(dir, "fk.db")}
+	db, err := openAppDB(cfg, &captureLogger{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+
+	if _, err := db.Exec(`
+		CREATE TABLE parent (id INTEGER PRIMARY KEY);
+		CREATE TABLE child (
+			id        INTEGER PRIMARY KEY,
+			parent_id INTEGER NOT NULL REFERENCES parent(id) ON DELETE CASCADE
+		);
+		INSERT INTO parent (id) VALUES (1);
+		INSERT INTO child (id, parent_id) VALUES (10, 1);
+	`); err != nil {
+		t.Fatalf("schema setup: %v", err)
+	}
+
+	if _, err := db.Exec(`DELETE FROM parent WHERE id = 1`); err != nil {
+		t.Fatalf("delete parent: %v", err)
+	}
+
+	var childCount int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM child`).Scan(&childCount); err != nil {
+		t.Fatalf("count child: %v", err)
+	}
+	if childCount != 0 {
+		t.Fatalf("FK ON DELETE CASCADE did not fire: %d child rows survived parent delete — pragma probably off", childCount)
+	}
+}
+
+func TestOpenAppDB_PragmasAreSet(t *testing.T) {
+	// Defense-in-depth on top of the cascade test: even if the cascade
+	// happened to work via some other path, this asserts the underlying
+	// pragmas are in the state we expect, with the exact values.
+	dir := t.TempDir()
+	cfg := &DBConfig{Driver: "sqlite", Path: filepath.Join(dir, "pragmas.db")}
+	db, err := openAppDB(cfg, &captureLogger{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+
+	var jm string
+	if err := db.QueryRow("PRAGMA journal_mode").Scan(&jm); err != nil {
+		t.Fatal(err)
+	}
+	if strings.ToLower(jm) != "wal" {
+		t.Errorf("journal_mode=%q, want wal", jm)
+	}
+	var bt int
+	if err := db.QueryRow("PRAGMA busy_timeout").Scan(&bt); err != nil {
+		t.Fatal(err)
+	}
+	if bt != 5000 {
+		t.Errorf("busy_timeout=%d, want 5000", bt)
+	}
+	var fk int
+	if err := db.QueryRow("PRAGMA foreign_keys").Scan(&fk); err != nil {
+		t.Fatal(err)
+	}
+	if fk != 1 {
+		t.Errorf("foreign_keys=%d, want 1", fk)
+	}
+}
+
 func TestOpenAppDB_OperationalSurvivesAtomicReplace(t *testing.T) {
 	// Reproduces the prod scenario: open the DB, do a write, swap
 	// the file out (simulating backup-restore), then attempt another
