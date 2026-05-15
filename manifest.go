@@ -77,6 +77,20 @@ type Requires struct {
 	// the bundled binary. Apps without a binaries block keep relying
 	// on the host's PATH as before.
 	Binaries []BinaryDep `yaml:"binaries,omitempty" json:"binaries,omitempty"`
+
+	// DynamicAppCalls opts the caller into runtime-resolved cross-app
+	// calls: handler code calling ctx.PlatformAPI().CallAppResult(app,
+	// tool, input) against any installed app, not just statically-
+	// declared ones in Apps. Honoured by apteva-server only for
+	// callers identified as official (manifest.runtime.source.repo
+	// prefix match — default github.com/apteva/, extendable via
+	// APTEVA_OFFICIAL_APP_PREFIXES). Without that match, this flag is
+	// a no-op — third-party apps that try to set it gain nothing.
+	//
+	// Defined for generic-FaaS-style apps (functions, future workflow
+	// runners) whose call targets aren't knowable at install time.
+	// The proper per-call permission model is a v2 follow-on.
+	DynamicAppCalls bool `yaml:"dynamic_app_calls,omitempty" json:"dynamic_app_calls,omitempty"`
 }
 
 // BinaryDep declares one native executable (or a set of related
