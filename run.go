@@ -170,11 +170,16 @@ func mountAppRoutes(mux *http.ServeMux, app App, ctx *AppCtx) {
 		method := r.Method
 		pattern := r.Pattern
 		handler := r.Handler
-		mux.HandleFunc(pattern, func(w http.ResponseWriter, req *http.Request) {
-			if method != "" && req.Method != method {
-				http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
-				return
-			}
+		// Use Go 1.22+'s method-prefixed pattern syntax when the route
+		// declares a method. Without this, two routes on the same path
+		// with different methods (e.g. GET + DELETE on "/instances/",
+		// a very common pattern) panic at boot because the underlying
+		// ServeMux treats them as conflicting registrations.
+		muxPattern := pattern
+		if method != "" {
+			muxPattern = method + " " + pattern
+		}
+		mux.HandleFunc(muxPattern, func(w http.ResponseWriter, req *http.Request) {
 			handler(w, req)
 			_ = ctx
 		})

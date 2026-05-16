@@ -258,6 +258,53 @@ func (c *httpPlatformClient) ListProjects() ([]PlatformProject, error) {
 	return out, nil
 }
 
+// SpawnRealtimeThread hits /api/apps/callback/threads/spawn-realtime.
+// Returns the spawn result including audio_bridge_url + audio_token
+// the caller uses to dial core's audio WebSocket.
+func (c *httpPlatformClient) SpawnRealtimeThread(req RealtimeSpawnRequest) (*RealtimeSpawnResult, error) {
+	if req.AgentID == 0 {
+		return nil, errors.New("SpawnRealtimeThread: agent_id required (pull from CallerFrom(ctx).AgentID in HandlerCtx)")
+	}
+	if req.ThreadID == "" {
+		return nil, errors.New("SpawnRealtimeThread: thread_id required")
+	}
+	if req.Directive == "" {
+		return nil, errors.New("SpawnRealtimeThread: directive required")
+	}
+	var out RealtimeSpawnResult
+	if err := c.post("/api/apps/callback/threads/spawn-realtime", req, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// KillThread hits /api/apps/callback/threads/{id} with DELETE.
+// Idempotent — 404 on unknown id is treated as success because the
+// caller's intent (no live thread by this name) is already satisfied.
+func (c *httpPlatformClient) KillThread(threadID string) error {
+	if threadID == "" {
+		return errors.New("KillThread: thread_id required")
+	}
+	req, err := http.NewRequest("DELETE", c.baseURL+"/api/apps/callback/threads/"+threadID, nil)
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Authorization", "Bearer "+c.token)
+	resp, err := c.client.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode == http.StatusNotFound {
+		return nil
+	}
+	if resp.StatusCode >= 400 {
+		body, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("KillThread %s: %d %s", threadID, resp.StatusCode, string(body))
+	}
+	return nil
+}
+
 // projectScopedClient wraps a PlatformClient so CallApp / CallAppResult
 // auto-thread `_project_id` into the input map when the caller hasn't
 // supplied one. Used by AppCtx.WithProject — apps' worker code calling
@@ -356,6 +403,12 @@ func (p *projectScopedClient) GetConnectionCredentials(id int64) (*ConnectionCre
 }
 func (p *projectScopedClient) ListProjects() ([]PlatformProject, error) {
 	return p.inner.ListProjects()
+}
+func (p *projectScopedClient) SpawnRealtimeThread(req RealtimeSpawnRequest) (*RealtimeSpawnResult, error) {
+	return p.inner.SpawnRealtimeThread(req)
+}
+func (p *projectScopedClient) KillThread(threadID string) error {
+	return p.inner.KillThread(threadID)
 }
 
 // --- low-level helpers -------------------------------------------------------

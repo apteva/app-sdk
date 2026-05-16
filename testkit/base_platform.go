@@ -114,3 +114,18 @@ func (BasePlatformClient) GetConnectionCredentials(int64) (*sdk.ConnectionCreden
 func (BasePlatformClient) ListProjects() ([]sdk.PlatformProject, error) {
 	return nil, ErrNotImplemented
 }
+
+// SpawnRealtimeThread defaults to ErrNotImplemented. Apps that
+// exercise realtime spawning (telephony, voice bridges) override
+// this to capture the request and return a synthetic
+// RealtimeSpawnResult with a stub audio bridge URL.
+func (BasePlatformClient) SpawnRealtimeThread(sdk.RealtimeSpawnRequest) (*sdk.RealtimeSpawnResult, error) {
+	return nil, ErrNotImplemented
+}
+
+// KillThread defaults to ErrNotImplemented. Test stubs that pair
+// spawn + kill in a single flow override this to record the kill
+// call.
+func (BasePlatformClient) KillThread(string) error {
+	return ErrNotImplemented
+}
