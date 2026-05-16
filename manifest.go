@@ -91,6 +91,17 @@ type Requires struct {
 	// runners) whose call targets aren't knowable at install time.
 	// The proper per-call permission model is a v2 follow-on.
 	DynamicAppCalls bool `yaml:"dynamic_app_calls,omitempty" json:"dynamic_app_calls,omitempty"`
+
+	// DynamicIntegrationAccess is the sibling capability for reaching
+	// integration connections (Pushover, Slack, Resend, ...) by raw
+	// connection_id at runtime, without the operator pre-binding each
+	// role per Integrations. Same trust model as DynamicAppCalls:
+	// gated by apteva-server on isOfficialCaller, and project-scoped
+	// — the resolved connection's project_id must match the caller
+	// install's. Defined for generic runners (workflows, functions)
+	// whose target connections are user-supplied at workflow-create /
+	// deploy time.
+	DynamicIntegrationAccess bool `yaml:"dynamic_integration_access,omitempty" json:"dynamic_integration_access,omitempty"`
 }
 
 // BinaryDep declares one native executable (or a set of related
@@ -674,6 +685,13 @@ const (
 	// apps whose access pattern can't go through the integration
 	// runner (multipart uploads, presigned URLs, range GETs).
 	PermConnectionsReadCredentials Permission = "platform.connections.read_credentials"
+	// PermRealtimeSpawn lets an app spawn realtime (voice/audio) sub-
+	// threads via PlatformClient.SpawnRealtimeThread, and kill any
+	// thread it created via KillThread. Implicit cost surface — the
+	// realtime model is billed per audio token — so the operator
+	// must opt in by installing the app AND flipping the instance's
+	// Config.RealtimeEnabled flag.
+	PermRealtimeSpawn Permission = "platform.realtime.spawn"
 )
 
 // AllPermissions returns the full taxonomy — used by the dashboard's
@@ -687,6 +705,7 @@ func AllPermissions() []Permission {
 		PermFSReadShared, PermFSWriteShared,
 		PermOAuthStart, PermConnectionsManage,
 		PermConnectionsReadCredentials,
+		PermRealtimeSpawn,
 	}
 }
 
