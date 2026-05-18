@@ -189,8 +189,8 @@ func TestOpenAppDB_PragmasAreSet(t *testing.T) {
 	if err := db.QueryRow("PRAGMA busy_timeout").Scan(&bt); err != nil {
 		t.Fatal(err)
 	}
-	if bt != 5000 {
-		t.Errorf("busy_timeout=%d, want 5000", bt)
+	if bt != 30000 {
+		t.Errorf("busy_timeout=%d, want 30000", bt)
 	}
 	var fk int
 	if err := db.QueryRow("PRAGMA foreign_keys").Scan(&fk); err != nil {

@@ -740,9 +740,20 @@ func openAppDB(cfg *DBConfig, logger Logger) (*sql.DB, error) {
 	// were no-ops in prod for months before this was caught. `_pragma=` runs
 	// the listed pragma on every new pool connection, which matters because
 	// `foreign_keys` and `busy_timeout` are per-connection state in SQLite.
+	//
+	// busy_timeout bumped from 5_000ms → 30_000ms in v0.25.0. Storage +
+	// media in particular had a steady drip of SQLITE_BUSY surfacing as
+	// agent-visible "retry" steps when concurrent writers (event handler
+	// + periodic ticker + agent tool calls) all hit the per-app DB at
+	// once. 5s was tight under heavy bursts; 30s absorbs the realistic
+	// worst case (a slow write while a multi-row UPDATE runs) without
+	// changing app-level retry behaviour. A genuinely deadlocked DB
+	// would just take 30s instead of 5s to surface — acceptable for the
+	// rare case in exchange for invisible-to-the-operator contention
+	// in the common one.
 	db, err := sql.Open("sqlite", "file:"+path+
 		"?_pragma=journal_mode(WAL)"+
-		"&_pragma=busy_timeout(5000)"+
+		"&_pragma=busy_timeout(30000)"+
 		"&_pragma=foreign_keys(on)")
 	if err != nil {
 		return nil, err
