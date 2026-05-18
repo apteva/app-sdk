@@ -575,7 +575,7 @@ type ConfigField struct {
 	Label       string `yaml:"label" json:"label"`
 	// Type names recognised by the dashboard renderer:
 	//   text | password | toggle | select | gdrive_sheet |
-	//   gdrive_folder | select_from_integration
+	//   gdrive_folder | select_from_integration | select_from_app
 	// Unknown types fall back to a plain text input. New types
 	// must be added in two places: this comment + the dashboard's
 	// SettingsSection / InstallModal switch arms.
@@ -603,13 +603,26 @@ type ConfigField struct {
 	// invokes Discovery.Tool against it to populate the dropdown.
 	IntegrationRole string `yaml:"integration_role,omitempty" json:"integration_role,omitempty"`
 
-	// Discovery — for type=select_from_integration: how to ask the
-	// bound connection's API for the list of choices. Mirrors the
-	// catalog-level credential_group.discovery shape so manifest
-	// authors think in one mental model. Tool names a real entry
-	// in the bound app's tools[]; ResponsePath JSON-paths to the
-	// list inside the response (or "" for a flat array); ValueField
-	// + LabelField pick the dropdown's value/label from each item.
+	// App — for type=select_from_app: which sibling app (by name)
+	// to query for the dropdown options. The dashboard hits
+	// /api/apps/<App><Discovery.Route> over its existing same-origin
+	// session and parses the response via Discovery.ResponsePath +
+	// ValueField + LabelField (same shape as the integration variant
+	// so manifest authors only learn one mental model). The named
+	// app should appear in requires.apps so the install picker can
+	// surface a "missing dep" error rather than a silent dropdown
+	// fail at config time.
+	App string `yaml:"app,omitempty" json:"app,omitempty"`
+
+	// Discovery — for type=select_from_integration AND
+	// type=select_from_app: how to fetch the list of options. The
+	// integration variant uses Discovery.Tool against the bound
+	// connection's API; the app variant uses Discovery.Route against
+	// the sibling app's HTTP surface. ResponsePath JSON-paths to the
+	// list inside the response (or "" for a flat array); ValueField +
+	// LabelField pick each item's dropdown value/label. One Discovery
+	// struct serves both variants — readers pick Tool vs Route based
+	// on the field's Type.
 	Discovery *ConfigFieldDiscovery `yaml:"discovery,omitempty" json:"discovery,omitempty"`
 
 	// Fallback — what to render when discovery fails (no binding,
@@ -625,11 +638,18 @@ type ConfigField struct {
 // catalog-level credential_group.discovery but applied per
 // install field rather than per app suite.
 type ConfigFieldDiscovery struct {
-	// Tool to invoke against the bound connection. Must exist in
-	// the bound app's tools[] AND require zero arguments (the
-	// dashboard sends an empty input map). Typically a list_X /
-	// list_buckets / list_workspaces style endpoint.
-	Tool string `yaml:"tool" json:"tool"`
+	// Tool to invoke against the bound connection (only for
+	// type=select_from_integration). Must exist in the bound app's
+	// tools[] AND require zero arguments (the dashboard sends an
+	// empty input map). Typically a list_X / list_buckets /
+	// list_workspaces style endpoint.
+	Tool string `yaml:"tool,omitempty" json:"tool,omitempty"`
+	// Route on the sibling app (only for type=select_from_app).
+	// The dashboard hits /api/apps/<ConfigField.App><Route> over
+	// its same-origin session. Typically a GET on a list endpoint
+	// the app already exposes for its own panel. Must include the
+	// leading slash, e.g. "/api/instances".
+	Route string `yaml:"route,omitempty" json:"route,omitempty"`
 	// JSON path into the response body to get the array of items.
 	// Dot-separated; "[]" steps into every element of an array.
 	// Empty string = the response itself is the array. Examples:
