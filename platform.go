@@ -9,6 +9,8 @@ import (
 	"net/http"
 	"os"
 	"strconv"
+	"strings"
+	"sync"
 	"time"
 )
 
@@ -27,7 +29,20 @@ type httpPlatformClient struct {
 	token      string
 	client     *http.Client
 	slowClient *http.Client
+
+	// platform_info cache. Sidecars used to read public_url etc. via
+	// the APTEVA_PUBLIC_URL env var captured at spawn time; that meant
+	// operators changing public_url in settings had to restart every
+	// sidecar. PlatformInfo() now fetches a small JSON blob from the
+	// platform and caches it for piCacheTTL, so apps get hot updates
+	// within a minute of an operator change without DOSing the
+	// server from hot loops.
+	piMu        sync.Mutex
+	piCached    *PlatformInfo
+	piCachedAt  time.Time
 }
+
+const piCacheTTL = 60 * time.Second
 
 func newHTTPPlatformClient(baseURL, token string) PlatformClient {
 	if baseURL == "" {
@@ -38,6 +53,40 @@ func newHTTPPlatformClient(baseURL, token string) PlatformClient {
 		client:     &http.Client{Timeout: 30 * time.Second},
 		slowClient: &http.Client{Timeout: 10 * time.Minute},
 	}
+}
+
+// PlatformInfo fetches the platform-level facts bag (public_url +
+// version). 60-second in-memory cache so apps can call from hot loops.
+// Older platforms that don't yet expose /api/apps/callback/platform-info
+// return a 404; we degrade gracefully by reading APTEVA_PUBLIC_URL from
+// the env (the legacy spawn-time variable) so apps that switch to this
+// helper keep working against pre-v0.17.6 servers.
+func (c *httpPlatformClient) PlatformInfo() (*PlatformInfo, error) {
+	c.piMu.Lock()
+	if c.piCached != nil && time.Since(c.piCachedAt) < piCacheTTL {
+		out := *c.piCached
+		c.piMu.Unlock()
+		return &out, nil
+	}
+	c.piMu.Unlock()
+
+	var fresh PlatformInfo
+	err := c.get("/api/apps/callback/platform-info", &fresh)
+	if err != nil {
+		// Back-compat: fall back to the env. Don't cache the env-fallback
+		// (the platform might come online with the endpoint between calls
+		// — let the next call retry the real fetch).
+		if envURL := strings.TrimSpace(os.Getenv("APTEVA_PUBLIC_URL")); envURL != "" {
+			return &PlatformInfo{PublicURL: envURL}, nil
+		}
+		return nil, err
+	}
+
+	c.piMu.Lock()
+	c.piCached = &fresh
+	c.piCachedAt = time.Now()
+	c.piMu.Unlock()
+	return &fresh, nil
 }
 
 func (c *httpPlatformClient) GetConnection(id int64) (*PlatformConnection, error) {
@@ -409,6 +458,9 @@ func (p *projectScopedClient) SpawnRealtimeThread(req RealtimeSpawnRequest) (*Re
 }
 func (p *projectScopedClient) KillThread(threadID string) error {
 	return p.inner.KillThread(threadID)
+}
+func (p *projectScopedClient) PlatformInfo() (*PlatformInfo, error) {
+	return p.inner.PlatformInfo()
 }
 
 // --- low-level helpers -------------------------------------------------------

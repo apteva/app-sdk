@@ -129,3 +129,10 @@ func (BasePlatformClient) SpawnRealtimeThread(sdk.RealtimeSpawnRequest) (*sdk.Re
 func (BasePlatformClient) KillThread(string) error {
 	return ErrNotImplemented
 }
+
+// PlatformInfo defaults to ErrNotImplemented. Tests that need a
+// specific PublicURL (e.g. exercising signed-URL flows) override
+// this to return a deterministic value.
+func (BasePlatformClient) PlatformInfo() (*sdk.PlatformInfo, error) {
+	return nil, ErrNotImplemented
+}

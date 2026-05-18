@@ -164,6 +164,20 @@ func (c *AppCtx) AppDB() *sql.DB { return c.db }
 // side against the manifest's declared permissions.
 func (c *AppCtx) PlatformAPI() PlatformClient { return c.platform }
 
+// PlatformInfo is the shortcut for c.PlatformAPI().PlatformInfo() —
+// the same convenience pattern as ctx.GetInstance / WhoAmI. Returns
+// the current platform-level facts (public_url, version) with the
+// HTTP impl's brief in-memory cache, so apps can call this freely
+// from a hot loop without DOSing apteva-server. Use this anywhere
+// a sidecar previously read os.Getenv("APTEVA_PUBLIC_URL") — env
+// is captured at spawn time and goes stale; this is hot-refreshed.
+func (c *AppCtx) PlatformInfo() (*PlatformInfo, error) {
+	if c == nil || c.platform == nil {
+		return nil, errors.New("AppCtx has no platform client (test stub?)")
+	}
+	return c.platform.PlatformInfo()
+}
+
 // Manifest is the parsed apteva.yaml the app shipped — readable for
 // runtime introspection (e.g. emitting a custom /version page).
 func (c *AppCtx) Manifest() *Manifest { return c.manifest }
@@ -664,6 +678,40 @@ type PlatformClient interface {
 	// platform.realtime.spawn (the kill capability is implicit in
 	// the spawn capability — you can only kill threads you can spawn).
 	KillThread(threadID string) error
+
+	// PlatformInfo returns the small bag of platform-level facts the
+	// apteva-server is willing to share with sidecars — currently
+	// just public_url. Sidecars used to read this via the
+	// APTEVA_PUBLIC_URL env var, but env is captured at spawn time:
+	// operators changing public_url in settings had to restart every
+	// sidecar to pick it up. This call hits the platform on a brief
+	// in-memory cache (60s by default in the HTTP impl) so apps see
+	// updated values within a minute of an operator change.
+	//
+	// Authorization: no manifest permission required — public_url
+	// is not sensitive (it's the URL operators publish for inbound
+	// webhooks / external recipients to reach the platform).
+	//
+	// Use ctx.PlatformInfo() as the convenience shortcut.
+	PlatformInfo() (*PlatformInfo, error)
+}
+
+// PlatformInfo is the small "what does the operator have configured at
+// the platform level" bag. Returned from PlatformClient.PlatformInfo
+// and ctx.PlatformInfo(). Add fields here when there's a new
+// platform-level fact apps need to read at runtime — keep it small;
+// per-app config_schema still owns per-app knobs.
+type PlatformInfo struct {
+	// PublicURL is the apteva-server's externally-reachable base URL.
+	// Used by sidecars to construct webhooks, signed URLs handed to
+	// third parties, etc. May be "" on local-only installs that
+	// never configured a public hostname. Equivalent to (but
+	// freshest-read of) the APTEVA_PUBLIC_URL env var.
+	PublicURL string `json:"public_url"`
+	// Version is the apteva-server's release version (e.g.
+	// "0.17.5"). Useful for capability gates ("only call X when
+	// platform >= 0.18"). Optional — older platforms may return "".
+	Version string `json:"version,omitempty"`
 }
 
 // PlatformProject is the minimal project descriptor PlatformClient.ListProjects
