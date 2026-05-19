@@ -230,6 +230,45 @@ type Provides struct {
 	// app.go for runtime enforcement.
 	Resources           []ResourceDecl       `yaml:"resources,omitempty" json:"resources,omitempty"`
 	ProvidedPermissions []ProvidedPermission `yaml:"permissions,omitempty" json:"permissions,omitempty"`
+
+	// Publishes is the declarative list of topics this app emits on
+	// the platform's AppBus (via ctx.Emit at runtime). Two consumers
+	// today: (1) the dashboard's subscription form renders a curated
+	// dropdown instead of a free-text topic input, and (2) the
+	// agent's directive picks up the catalog when reasoning about
+	// "what events can I subscribe to". Apps that emit nothing or
+	// haven't documented their emissions yet omit this and the
+	// dashboard falls back to free-text.
+	Publishes []EventDecl `yaml:"publishes,omitempty" json:"publishes,omitempty"`
+}
+
+// EventDecl describes one topic the app emits on the AppBus. Pure
+// declaration — the platform does NOT enforce that runtime emits
+// match the declared schema (apps emit through ctx.Emit which only
+// cares about the topic string). The dashboard uses these for the
+// subscription form's event picker and for tooltip descriptions.
+type EventDecl struct {
+	// Name is the topic string, dot-separated by convention
+	// ("media.indexed", "account.created"). Must match exactly what
+	// ctx.Emit("…", …) passes at runtime.
+	Name string `yaml:"name" json:"name"`
+	// Description is a one-line human-readable explanation of what
+	// the event represents. Surfaced as the dropdown option's
+	// tooltip / sub-line in the dashboard.
+	Description string `yaml:"description,omitempty" json:"description,omitempty"`
+	// Dynamic indicates that the topic has a runtime-synthesized
+	// suffix (e.g. mqtt's "mqtt.<broker-topic>" or streaming's
+	// "stream.<id>.viewer_count_changed"). When true, Name must end
+	// with ".*" so the dashboard can render the option with the
+	// trailing wildcard explicit. Subscribers see the literal
+	// pattern.
+	Dynamic bool `yaml:"dynamic,omitempty" json:"dynamic,omitempty"`
+	// Payload is documentation-only: a loose map of field-name → a
+	// type label ("string", "integer", "boolean", "object", "array",
+	// or richer ASCII prose). Not validated; never enforced.
+	// Surfaced in the dashboard tooltip so an operator authoring
+	// a subscription knows what they'll receive.
+	Payload map[string]string `yaml:"payload,omitempty" json:"payload,omitempty"`
 }
 
 // ResourceDecl describes one shape of resource the app exposes to
