@@ -770,6 +770,23 @@ func openAppDB(cfg *DBConfig, logger Logger) (*sql.DB, error) {
 		_ = db.Close()
 		return nil, fmt.Errorf("openAppDB %s: %w", path, err)
 	}
+	// Serialize ALL access through a single connection. SQLite permits
+	// exactly one writer at a time (even in WAL); database/sql otherwise
+	// opens an unbounded pool under concurrency, so an app's event
+	// handler + periodic ticker + agent tool call can each grab their
+	// own connection and contend on the single-writer lock — the losers
+	// wait up to busy_timeout, then surface SQLITE_BUSY as agent-visible
+	// "retry" steps. With MaxOpenConns(1), writes queue in Go and take
+	// their turn instead of racing the lock. The 30s busy_timeout above
+	// stays as belt-and-suspenders for the cross-process case (a backup
+	// restore touching the file mid-write).
+	//
+	// Compatible with the conn-recycling below: a single connection is
+	// still recycled by SetConnMaxLifetime, so the inode-poisoning
+	// recovery (SQLITE_READONLY_DBMOVED) keeps working — the lone conn
+	// drains within the lifetime cap.
+	db.SetMaxOpenConns(1)
+
 	// Recycle pooled connections so they can't pin a stale inode forever.
 	//
 	// Background: when something (a backup-app live restore, an rsync, a
