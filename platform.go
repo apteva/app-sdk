@@ -428,7 +428,24 @@ func (p *projectScopedClient) SendToChannel(channelName, projectID, message stri
 	}
 	return p.inner.SendToChannel(channelName, projectID, message)
 }
-func (p *projectScopedClient) WhoAmI() (*InstallIdentity, error) { return p.inner.WhoAmI() }
+func (p *projectScopedClient) WhoAmI() (*InstallIdentity, error) {
+	id, err := p.inner.WhoAmI()
+	if err != nil || id == nil || strings.TrimSpace(p.projectID) == "" {
+		return id, err
+	}
+	scoped := *id
+	scoped.ProjectID = p.projectID
+	if projects, perr := p.inner.ListProjects(); perr == nil {
+		for _, project := range projects {
+			if project.ID == p.projectID {
+				scoped.ProjectName = project.Name
+				scoped.ProjectDescription = project.Description
+				break
+			}
+		}
+	}
+	return &scoped, nil
+}
 func (p *projectScopedClient) ExecuteIntegrationTool(connID int64, tool string, input map[string]any) (*ExecuteResult, error) {
 	return p.inner.ExecuteIntegrationTool(connID, tool, input)
 }

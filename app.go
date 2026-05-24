@@ -714,14 +714,14 @@ type PlatformInfo struct {
 	Version string `json:"version,omitempty"`
 }
 
-// PlatformProject is the minimal project descriptor PlatformClient.ListProjects
-// returns. Apps that need richer per-project metadata (description,
-// settings, …) should query WhoAmI per project, but for the common
-// "loop over my projects and call storage once per project" use case
-// ID + Name is enough.
+// PlatformProject is the project descriptor PlatformClient.ListProjects
+// returns. Apps that only fan out work need ID; apps that generate
+// human-facing or LLM-facing output can use Name/Description as light
+// context for the current project.
 type PlatformProject struct {
-	ID   string `json:"id"`
-	Name string `json:"name"`
+	ID          string `json:"id"`
+	Name        string `json:"name"`
+	Description string `json:"description,omitempty"`
 }
 
 // GrantsResponse is what GetGrants returns. DefaultEffect is the
