@@ -48,10 +48,10 @@ type App interface {
 // is appropriate. Same exposure model as the existing /webhooks/*
 // prefix carve-out, just opt-in per route.
 type Route struct {
-	Method  string                                              // "" = any
-	Pattern string                                              // mux-style, may include params
+	Method  string // "" = any
+	Pattern string // mux-style, may include params
 	Handler http.HandlerFunc
-	NoAuth  bool                                                // bypass withTokenAuth for this route
+	NoAuth  bool // bypass withTokenAuth for this route
 }
 
 // Tool — one MCP tool exposed by the app. The framework wires these
@@ -93,15 +93,15 @@ type Worker struct {
 // EventHandler — subscription to a platform event topic. Platform pushes
 // events to /apps/<name>/events; framework dispatches to handlers.
 type EventHandler struct {
-	Topic   string                                              // e.g. "instance.message", "connection.created"
+	Topic   string // e.g. "instance.message", "connection.created"
 	Handler func(ctx *AppCtx, event Event) error
 }
 
 type Event struct {
-	Topic     string                 `json:"topic"`
-	InstanceID int64                 `json:"instance_id,omitempty"`
-	ProjectID  string                `json:"project_id,omitempty"`
-	Data       map[string]any        `json:"data,omitempty"`
+	Topic      string         `json:"topic"`
+	InstanceID int64          `json:"instance_id,omitempty"`
+	ProjectID  string         `json:"project_id,omitempty"`
+	Data       map[string]any `json:"data,omitempty"`
 }
 
 // ChannelFactory builds an inbound/outbound channel adapter for one
@@ -526,8 +526,8 @@ func (silentLogger) Error(string, ...any) {}
 // Config — typed access to user-supplied install configuration.
 type Config map[string]string
 
-func (c Config) Get(name string) string  { return c[name] }
-func (c Config) Has(name string) bool    { _, ok := c[name]; return ok }
+func (c Config) Get(name string) string { return c[name] }
+func (c Config) Has(name string) bool   { _, ok := c[name]; return ok }
 
 // Logger — minimal structured logging interface so apps don't have to
 // import a logger package. Framework provides the default impl.
@@ -837,11 +837,11 @@ type ConnectionCredentials struct {
 }
 
 type PlatformConnection struct {
-	ID         int64  `json:"id"`
-	AppSlug    string `json:"app_slug"`
-	Name       string `json:"name"`
-	Status     string `json:"status"`
-	ProjectID  string `json:"project_id"`
+	ID        int64  `json:"id"`
+	AppSlug   string `json:"app_slug"`
+	Name      string `json:"name"`
+	Status    string `json:"status"`
+	ProjectID string `json:"project_id"`
 }
 
 type ConnectionFilter struct {
@@ -874,10 +874,10 @@ type PlatformAgent = PlatformInstance
 // WhoAmI(). Useful when an app wants to log its own install id without
 // re-reading env vars.
 type InstallIdentity struct {
-	AppName     string         `json:"app_name"`
-	Version     string         `json:"version"`
-	InstallID   int64          `json:"install_id"`
-	ProjectID   string         `json:"project_id"`
+	AppName   string `json:"app_name"`
+	Version   string `json:"version"`
+	InstallID int64  `json:"install_id"`
+	ProjectID string `json:"project_id"`
 	// ProjectName is the operator-set human label for the project
 	// (Settings → Projects → Name). Empty for global installs.
 	// Apps that surface human-readable references to the project
@@ -890,8 +890,8 @@ type InstallIdentity struct {
 	// LLM-using apps — e.g. media's describer prepends it to the
 	// system prompt so generated descriptions land in the right
 	// register ("internal team standups", "cooking show clips").
-	ProjectDescription string `json:"project_description,omitempty"`
-	Permissions []Permission   `json:"permissions"`
+	ProjectDescription string       `json:"project_description,omitempty"`
+	Permissions        []Permission `json:"permissions"`
 	// Bindings carries the install's integration_bindings JSON —
 	// keys are role names declared in the manifest, values are
 	// connection_id (kind=integration) or install_id (kind=app),

@@ -37,9 +37,9 @@ type httpPlatformClient struct {
 	// platform and caches it for piCacheTTL, so apps get hot updates
 	// within a minute of an operator change without DOSing the
 	// server from hot loops.
-	piMu        sync.Mutex
-	piCached    *PlatformInfo
-	piCachedAt  time.Time
+	piMu       sync.Mutex
+	piCached   *PlatformInfo
+	piCachedAt time.Time
 }
 
 const piCacheTTL = 60 * time.Second

@@ -25,14 +25,14 @@ const SchemaCurrent = "apteva-app/v1"
 // requirements, what it provides, and how the platform should host it.
 // Loaded from apteva.yaml in the app's repo root.
 type Manifest struct {
-	Schema      string `yaml:"schema" json:"schema"`
-	Name        string `yaml:"name" json:"name"`               // slug; matches repo and orchestrator service
-	DisplayName string `yaml:"display_name" json:"display_name"`
-	Version     string `yaml:"version" json:"version"`         // semver
-	Description string `yaml:"description" json:"description"`
-	Author      string `yaml:"author" json:"author"`
-	Homepage    string `yaml:"homepage" json:"homepage"`
-	Icon        string `yaml:"icon" json:"icon"`
+	Schema      string   `yaml:"schema" json:"schema"`
+	Name        string   `yaml:"name" json:"name"` // slug; matches repo and orchestrator service
+	DisplayName string   `yaml:"display_name" json:"display_name"`
+	Version     string   `yaml:"version" json:"version"` // semver
+	Description string   `yaml:"description" json:"description"`
+	Author      string   `yaml:"author" json:"author"`
+	Homepage    string   `yaml:"homepage" json:"homepage"`
+	Icon        string   `yaml:"icon" json:"icon"`
 	Tags        []string `yaml:"tags" json:"tags"`
 
 	Scopes           []Scope `yaml:"scopes" json:"scopes"`
@@ -41,9 +41,14 @@ type Manifest struct {
 	Requires Requires `yaml:"requires" json:"requires"`
 	Provides Provides `yaml:"provides" json:"provides"`
 
-	Runtime      Runtime      `yaml:"runtime" json:"runtime"`
-	DB           *DBConfig    `yaml:"db,omitempty" json:"db,omitempty"`
+	Runtime      Runtime       `yaml:"runtime" json:"runtime"`
+	DB           *DBConfig     `yaml:"db,omitempty" json:"db,omitempty"`
 	ConfigSchema []ConfigField `yaml:"config_schema" json:"config_schema"`
+
+	// Imports is an app-owned declarative catalog of external sources this
+	// app knows how to import into itself. The platform may interpret this
+	// in a future import/sync runner; apps that don't declare imports omit it.
+	Imports map[string]any `yaml:"imports,omitempty" json:"imports,omitempty"`
 
 	UpgradePolicy UpgradePolicy `yaml:"upgrade_policy" json:"upgrade_policy"`
 }
@@ -60,9 +65,9 @@ const (
 // MCP tools the user must attach, minimum platform version, and
 // other Apteva apps that must be installed alongside.
 type Requires struct {
-	Permissions       []Permission        `yaml:"permissions" json:"permissions"`
-	MCPToolsAtRuntime []string            `yaml:"mcp_tools_at_runtime" json:"mcp_tools_at_runtime"`
-	Apps              []RequiredAppRef    `yaml:"apps,omitempty" json:"apps,omitempty"`
+	Permissions       []Permission     `yaml:"permissions" json:"permissions"`
+	MCPToolsAtRuntime []string         `yaml:"mcp_tools_at_runtime" json:"mcp_tools_at_runtime"`
+	Apps              []RequiredAppRef `yaml:"apps,omitempty" json:"apps,omitempty"`
 	// Integrations declares roles this app fills with either an
 	// integration connection or another Apteva app. The operator
 	// binds each role at install time; the app reads the binding
@@ -113,9 +118,9 @@ type Requires struct {
 // each BinarySource; the manifest lives in the app's git repo, which
 // the platform already trusts (it builds the app from there).
 type BinaryDep struct {
-	Name        string                  `yaml:"name" json:"name"`
-	Version     string                  `yaml:"version" json:"version"`
-	Executables []string                `yaml:"executables,omitempty" json:"executables,omitempty"`
+	Name        string   `yaml:"name" json:"name"`
+	Version     string   `yaml:"version" json:"version"`
+	Executables []string `yaml:"executables,omitempty" json:"executables,omitempty"`
 	// Sources maps "<os>-<arch>" (e.g. "linux-amd64") to a per-platform
 	// download descriptor. A missing entry for the runtime platform
 	// causes install to fail when Required=true, or silently skip the
@@ -140,16 +145,16 @@ type BinarySource struct {
 
 // IntegrationDep declares one role the app needs filled. Two kinds:
 //
-//   kind: integration  — bind a connection (per-project credentials
-//                        for some upstream like OpenAI). The platform
-//                        executes tools server-side via the existing
-//                        integration runner; the app never holds the
-//                        secret.
+//	kind: integration  — bind a connection (per-project credentials
+//	                     for some upstream like OpenAI). The platform
+//	                     executes tools server-side via the existing
+//	                     integration runner; the app never holds the
+//	                     secret.
 //
-//   kind: app          — bind another Apteva app installed in the
-//                        same project. The platform proxies MCP calls
-//                        from this app to the target sidecar; auth is
-//                        the binding itself.
+//	kind: app          — bind another Apteva app installed in the
+//	                     same project. The platform proxies MCP calls
+//	                     from this app to the target sidecar; auth is
+//	                     the binding itself.
 //
 // Required deps block install until bound. Optional deps surface as
 // opt-in checkboxes; the app degrades gracefully when the role is
@@ -200,7 +205,7 @@ type IntegrationDep struct {
 // degrade gracefully — the dependent's UI hides surfaces tied to
 // the missing app instead of failing.
 type RequiredAppRef struct {
-	Name     string `yaml:"name" json:"name"`                         // matches the dep's manifest.name
+	Name     string `yaml:"name" json:"name"`                           // matches the dep's manifest.name
 	Version  string `yaml:"version,omitempty" json:"version,omitempty"` // semver constraint, ">=1.0.0" form; empty = any
 	Reason   string `yaml:"reason,omitempty" json:"reason,omitempty"`   // human-readable; surfaced in the dashboard
 	Optional bool   `yaml:"optional,omitempty" json:"optional,omitempty"`
@@ -209,19 +214,19 @@ type RequiredAppRef struct {
 // Provides describes the surfaces this app contributes back to the
 // platform — none, one, or many.
 type Provides struct {
-	HTTPRoutes      []RouteSpec       `yaml:"http_routes" json:"http_routes"`
-	MCPTools        []MCPToolSpec     `yaml:"mcp_tools" json:"mcp_tools"`
-	PromptFragments []PromptFragment  `yaml:"prompt_fragments" json:"prompt_fragments"`
-	UIPanels        []UIPanel         `yaml:"ui_panels" json:"ui_panels"`
-	UIComponents    []UIComponent     `yaml:"ui_components,omitempty" json:"ui_components,omitempty"`
-	UIApp           *UIApp            `yaml:"ui_app,omitempty" json:"ui_app,omitempty"`
-	Channels        []ChannelSpec     `yaml:"channels" json:"channels"`
-	Workers         []WorkerSpec      `yaml:"workers" json:"workers"`
+	HTTPRoutes      []RouteSpec      `yaml:"http_routes" json:"http_routes"`
+	MCPTools        []MCPToolSpec    `yaml:"mcp_tools" json:"mcp_tools"`
+	PromptFragments []PromptFragment `yaml:"prompt_fragments" json:"prompt_fragments"`
+	UIPanels        []UIPanel        `yaml:"ui_panels" json:"ui_panels"`
+	UIComponents    []UIComponent    `yaml:"ui_components,omitempty" json:"ui_components,omitempty"`
+	UIApp           *UIApp           `yaml:"ui_app,omitempty" json:"ui_app,omitempty"`
+	Channels        []ChannelSpec    `yaml:"channels" json:"channels"`
+	Workers         []WorkerSpec     `yaml:"workers" json:"workers"`
 	// Skills the app ships — markdown-bodied playbooks the agent
 	// loads on demand to act with this app's expertise. Each entry
 	// becomes one row in the platform's skills table on install,
 	// refreshes on upgrade, cascade-deletes on uninstall.
-	Skills          []Skill           `yaml:"skills,omitempty" json:"skills,omitempty"`
+	Skills []Skill `yaml:"skills,omitempty" json:"skills,omitempty"`
 
 	// Resources + ProvidedPermissions opt the app into per-(install,
 	// instance) authorization. Apps that omit both keep today's
@@ -324,8 +329,8 @@ type ProvidedPermission struct {
 // stores the result in the database. After install, the row is the
 // source of truth — no runtime filesystem reads.
 type Skill struct {
-	Name        string         `yaml:"name" json:"name"`
-	Description string         `yaml:"description" json:"description"`
+	Name        string `yaml:"name" json:"name"`
+	Description string `yaml:"description" json:"description"`
 	// Command — optional slash trigger (e.g. "/storage"). Stored as
 	// the literal command including the leading slash. The agent
 	// runtime (separate task) routes /<command> invocations to this
@@ -348,18 +353,19 @@ type Skill struct {
 // surfaces, and the dashboard auto-mounts for slot surfaces.
 //
 // Slots:
-//   chat.message_attachment   — under an agent message in chat
-//   dashboard.project_sidebar — small widget on the project home
-//   tool_details.popover      — when an operator clicks a tool row
+//
+//	chat.message_attachment   — under an agent message in chat
+//	dashboard.project_sidebar — small widget on the project home
+//	tool_details.popover      — when an operator clicks a tool row
 //
 // Slot list is enforced by the platform — components can only render
 // in their declared slots. Components without slots can't be rendered
 // anywhere; they're effectively dead code (intentional: forces apps
 // to be explicit about where their UI shows up).
 type UIComponent struct {
-	Name        string         `yaml:"name" json:"name"`               // kebab-case, scoped under the app
-	Entry       string         `yaml:"entry" json:"entry"`             // sidecar path: "/ui/FileCard.mjs"
-	Slots       []string       `yaml:"slots" json:"slots"`             // allowlist of where it can render
+	Name        string         `yaml:"name" json:"name"`   // kebab-case, scoped under the app
+	Entry       string         `yaml:"entry" json:"entry"` // sidecar path: "/ui/FileCard.mjs"
+	Slots       []string       `yaml:"slots" json:"slots"` // allowlist of where it can render
 	PropsSchema map[string]any `yaml:"props_schema,omitempty" json:"props_schema,omitempty"`
 	// PreviewProps lets the dashboard render a live sample of this
 	// component (in the app's install detail panel) so operators can
@@ -418,10 +424,11 @@ type PromptFragment struct {
 // inherits the host's auth + project context via props.
 //
 // Slots:
-//   project.page    — sidebar entry + full-pane page scoped to a project
-//   instance.tab    — full-pane tab inside the agent detail page
-//   instance.status — thin status strip on the agent detail header
-//   settings.app    — embedded into the Apps tab's per-install detail
+//
+//	project.page    — sidebar entry + full-pane page scoped to a project
+//	instance.tab    — full-pane tab inside the agent detail page
+//	instance.status — thin status strip on the agent detail header
+//	settings.app    — embedded into the Apps tab's per-install detail
 type UIPanel struct {
 	Slot  string `yaml:"slot" json:"slot"`
 	Label string `yaml:"label" json:"label"`
@@ -437,7 +444,7 @@ type UIApp struct {
 	// means same-origin, path-mounted under apteva-server itself —
 	// see MountPath. The template path is the future white-label flow;
 	// the same-origin path is what install_kind=static actually uses.
-	DomainTemplate string   `yaml:"domain_template" json:"domain_template"`
+	DomainTemplate string `yaml:"domain_template" json:"domain_template"`
 	// MountPath — used when DomainTemplate is empty. The static bundle
 	// is served at apteva-server's `<MountPath>/...` (e.g. "/client").
 	// Defaults to "/" + manifest.name when unset; admins can override
@@ -470,18 +477,18 @@ type WorkerSpec struct {
 // can be declared together on one manifest; the platform picks the
 // best one available:
 //
-//   source    — primary path for Go apps. Manifest names a git repo +
-//               ref; the platform clones, runs `go build`, caches the
-//               resulting binary under ~/.apteva/apps/<name>/<version>/
-//               and spawns it. Authors push source — no per-platform
-//               builds, no release pipeline. Requires Go on the host.
+//	source    — primary path for Go apps. Manifest names a git repo +
+//	            ref; the platform clones, runs `go build`, caches the
+//	            resulting binary under ~/.apteva/apps/<name>/<version>/
+//	            and spawns it. Authors push source — no per-platform
+//	            builds, no release pipeline. Requires Go on the host.
 //
-//   binaries  — pre-built native binaries, keyed "<os>-<arch>". The
-//               platform downloads, caches, and spawns. Use when the
-//               app is closed-source or wants a polished release flow.
+//	binaries  — pre-built native binaries, keyed "<os>-<arch>". The
+//	            platform downloads, caches, and spawns. Use when the
+//	            app is closed-source or wants a polished release flow.
 //
-//   image     — fallback for non-Go apps or when extra isolation
-//               matters. Orchestrator deploys the image to a worker.
+//	image     — fallback for non-Go apps or when extra isolation
+//	            matters. Orchestrator deploys the image to a worker.
 type Runtime struct {
 	// Kind — "service" | "source" | "static". The first two start a
 	// sidecar (image pull or git build); "static" means no process at
@@ -489,17 +496,17 @@ type Runtime struct {
 	// directly under its own HTTP mux. UI-only apps (single-page
 	// portals, marketing kiosks, etc.) pick "static" and skip every
 	// field below except StaticDir.
-	Kind        string             `yaml:"kind" json:"kind"`             // service | source | static
-	Image       string             `yaml:"image" json:"image"`
-	Binaries    map[string]string  `yaml:"binaries" json:"binaries"`     // key: "<os>-<arch>" e.g. "linux-amd64", "darwin-arm64"
-	Source      *SourceSpec        `yaml:"source,omitempty" json:"source,omitempty"`
+	Kind     string            `yaml:"kind" json:"kind"` // service | source | static
+	Image    string            `yaml:"image" json:"image"`
+	Binaries map[string]string `yaml:"binaries" json:"binaries"` // key: "<os>-<arch>" e.g. "linux-amd64", "darwin-arm64"
+	Source   *SourceSpec       `yaml:"source,omitempty" json:"source,omitempty"`
 	// Bundle — prebuilt static-asset tarball delivery for kind: static.
 	// CI builds dist/, packs it as <name>-<version>.tgz, uploads to a
 	// release; the server downloads, verifies sha256, extracts. Lets
 	// authors ship the build artifact instead of the build toolchain,
 	// so install hosts don't need bun/node. SHA256 is required — an
 	// unverified bundle is a supply-chain hole we're not paying for.
-	Bundle      *BundleSpec        `yaml:"bundle,omitempty" json:"bundle,omitempty"`
+	Bundle *BundleSpec `yaml:"bundle,omitempty" json:"bundle,omitempty"`
 	// StaticDir — only meaningful when Kind == "static". Path inside
 	// the app repo (relative) or absolute on disk where the prebuilt
 	// SPA / asset directory lives. apteva-server serves this as a
@@ -511,9 +518,9 @@ type Runtime struct {
 	// tarball* (commonly "." if the tarball was built with
 	// `tar -C dist .`, or "dist" if the tarball preserves the dist/
 	// prefix).
-	StaticDir   string             `yaml:"static_dir,omitempty" json:"static_dir,omitempty"`
-	Port        int                `yaml:"port" json:"port"`
-	HealthCheck string             `yaml:"health_check" json:"health_check"`
+	StaticDir   string `yaml:"static_dir,omitempty" json:"static_dir,omitempty"`
+	Port        int    `yaml:"port" json:"port"`
+	HealthCheck string `yaml:"health_check" json:"health_check"`
 	// BindHost — interface the sidecar listens on. Default loopback
 	// ("127.0.0.1") because predictable APTEVA_APP_TOKENs (dev-<id>
 	// form) make wider exposure risky for most apps; the platform
@@ -524,10 +531,10 @@ type Runtime struct {
 	// "0.0.0.0" or a specific interface IP. Mark every NoAuth route
 	// explicitly when doing this — the host's network IS the auth
 	// boundary in that mode.
-	BindHost    string             `yaml:"bind_host,omitempty" json:"bind_host,omitempty"`
-	Resources   ResourceLimits     `yaml:"resources" json:"resources"`
-	Storage     []StorageSpec      `yaml:"storage" json:"storage"`
-	Env         map[string]EnvFrom `yaml:"env" json:"env"`
+	BindHost  string             `yaml:"bind_host,omitempty" json:"bind_host,omitempty"`
+	Resources ResourceLimits     `yaml:"resources" json:"resources"`
+	Storage   []StorageSpec      `yaml:"storage" json:"storage"`
+	Env       map[string]EnvFrom `yaml:"env" json:"env"`
 }
 
 // SourceSpec — git-clone-and-build delivery. Paired with kind: source.
@@ -580,19 +587,19 @@ type EnvFrom struct {
 // looks like the version cleanup logic in
 // apps/source-installer):
 //
-//   apps/<name>/<version>/        — built source tree + binary; one
-//                                   per installed version, the
-//                                   prune sweep ages these out.
-//   apps/<name>/data/<install>/   — RESERVED for per-install
-//                                   persistent state (app.db,
-//                                   APTEVA_DATA_DIR contents). The
-//                                   platform sets DB_PATH and
-//                                   APTEVA_DATA_DIR to point here.
-//                                   MUST NOT be touched by any
-//                                   version-dir cleanup — destroying
-//                                   it silently wipes every install's
-//                                   SQLite DB (we shipped the bug,
-//                                   we shipped the fix in v0.14.3).
+//	apps/<name>/<version>/        — built source tree + binary; one
+//	                                per installed version, the
+//	                                prune sweep ages these out.
+//	apps/<name>/data/<install>/   — RESERVED for per-install
+//	                                persistent state (app.db,
+//	                                APTEVA_DATA_DIR contents). The
+//	                                platform sets DB_PATH and
+//	                                APTEVA_DATA_DIR to point here.
+//	                                MUST NOT be touched by any
+//	                                version-dir cleanup — destroying
+//	                                it silently wipes every install's
+//	                                SQLite DB (we shipped the bug,
+//	                                we shipped the fix in v0.14.3).
 //
 // If you add a new sibling under apps/<name>/, register it in
 // reservedAppSiblings in server/apps_source.go AND make sure its
@@ -610,8 +617,8 @@ type DBConfig struct {
 // the dashboard renders against the user. Same schema is reused for
 // after-install settings edits via PUT /api/apps/installs/:id/config.
 type ConfigField struct {
-	Name        string `yaml:"name" json:"name"`
-	Label       string `yaml:"label" json:"label"`
+	Name  string `yaml:"name" json:"name"`
+	Label string `yaml:"label" json:"label"`
 	// Type names recognised by the dashboard renderer:
 	//   text | password | toggle | select | gdrive_sheet |
 	//   gdrive_folder | select_from_integration | select_from_app
@@ -720,25 +727,25 @@ const (
 type Permission string
 
 const (
-	PermDBWriteApp           Permission = "db.write.app"
-	PermNetEgress            Permission = "net.egress"
-	PermConnectionsRead      Permission = "platform.connections.read"
-	PermConnectionsWrite     Permission = "platform.connections.write"
-	PermConnectionsExecute   Permission = "platform.connections.execute"
-	PermInstancesRead        Permission = "platform.instances.read"
-	PermInstancesWrite       Permission = "platform.instances.write"
-	PermMCPAttach            Permission = "platform.mcp.attach"
-	PermChannelsSend         Permission = "platform.channels.send"
-	PermAppsCall             Permission = "platform.apps.call"
-	PermFSReadShared         Permission = "fs.read.shared"
-	PermFSWriteShared        Permission = "fs.write.shared"
+	PermDBWriteApp         Permission = "db.write.app"
+	PermNetEgress          Permission = "net.egress"
+	PermConnectionsRead    Permission = "platform.connections.read"
+	PermConnectionsWrite   Permission = "platform.connections.write"
+	PermConnectionsExecute Permission = "platform.connections.execute"
+	PermInstancesRead      Permission = "platform.instances.read"
+	PermInstancesWrite     Permission = "platform.instances.write"
+	PermMCPAttach          Permission = "platform.mcp.attach"
+	PermChannelsSend       Permission = "platform.channels.send"
+	PermAppsCall           Permission = "platform.apps.call"
+	PermFSReadShared       Permission = "fs.read.shared"
+	PermFSWriteShared      Permission = "fs.write.shared"
 	// PermOAuthStart lets an app initiate an OAuth dance against any
 	// integration in the catalog and store the resulting connection
 	// under its own ownership (created_via=app_install). Bundled with
 	// platform.connections.manage so the app can list / disconnect /
 	// refresh the connections it owns.
-	PermOAuthStart           Permission = "platform.oauth.start"
-	PermConnectionsManage    Permission = "platform.connections.manage"
+	PermOAuthStart        Permission = "platform.oauth.start"
+	PermConnectionsManage Permission = "platform.connections.manage"
 	// PermConnectionsReadCredentials lets an app read raw decrypted
 	// credentials from a bound integration connection. Reserved for
 	// apps whose access pattern can't go through the integration
