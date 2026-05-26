@@ -148,10 +148,28 @@ func Run(app App) {
 	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer shutdownCancel()
 	_ = srv.Shutdown(shutdownCtx)
-	if err := app.OnUnmount(ctx); err != nil {
-		logger.Warn("OnUnmount error", "err", err)
+	unmountDone := make(chan error, 1)
+	go func() {
+		unmountDone <- app.OnUnmount(ctx)
+	}()
+	select {
+	case err := <-unmountDone:
+		if err != nil {
+			logger.Warn("OnUnmount error", "err", err)
+		}
+	case <-time.After(10 * time.Second):
+		logger.Warn("OnUnmount timed out; exiting")
 	}
-	wg.Wait()
+	workersDone := make(chan struct{})
+	go func() {
+		wg.Wait()
+		close(workersDone)
+	}()
+	select {
+	case <-workersDone:
+	case <-time.After(10 * time.Second):
+		logger.Warn("worker shutdown timed out; exiting")
+	}
 	logger.Info("stopped")
 }
 
@@ -479,9 +497,9 @@ type mcpRequest struct {
 }
 
 type mcpResponse struct {
-	JSONRPC string `json:"jsonrpc"`
-	ID      any    `json:"id"`
-	Result  any    `json:"result,omitempty"`
+	JSONRPC string    `json:"jsonrpc"`
+	ID      any       `json:"id"`
+	Result  any       `json:"result,omitempty"`
 	Error   *mcpError `json:"error,omitempty"`
 }
 
