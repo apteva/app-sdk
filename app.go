@@ -65,6 +65,7 @@ type Tool struct {
 	Name        string
 	Description string
 	InputSchema map[string]any // JSON schema
+	Meta        map[string]any // MCP _meta extension fields
 	Handler     ToolHandler
 	HandlerCtx  ToolHandlerCtx
 }

@@ -541,9 +541,13 @@ func (h *mcpHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	case "tools/list":
 		out := make([]map[string]any, 0, len(h.tools))
 		for _, t := range h.tools {
-			out = append(out, map[string]any{
+			entry := map[string]any{
 				"name": t.Name, "description": t.Description, "inputSchema": t.InputSchema,
-			})
+			}
+			if len(t.Meta) > 0 {
+				entry["_meta"] = t.Meta
+			}
+			out = append(out, entry)
 		}
 		writeMCP(w, req.ID, map[string]any{"tools": out})
 
