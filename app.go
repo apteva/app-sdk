@@ -695,6 +695,34 @@ type PlatformClient interface {
 	//
 	// Use ctx.PlatformInfo() as the convenience shortcut.
 	PlatformInfo() (*PlatformInfo, error)
+
+	// Environments
+	//
+	// These methods expose the platform's isolated test/backtest
+	// environment surface to apps that are explicitly installed with
+	// environment permissions. Environments are control-plane objects:
+	// apps that merely run inside one should usually only read
+	// CurrentEnvironmentID() and rely on the SDK's automatic
+	// X-Apteva-Environment-Id forwarding. Apps that orchestrate
+	// evaluations or backtests can create an environment, seed/call
+	// tools inside it, spawn a cloned agent, inspect results, snapshot
+	// state, then destroy it.
+	//
+	// Authorization: read methods require platform.environments.read
+	// or .manage; SeedEnvironment/CallEnvironmentApp require
+	// platform.environments.call or .manage; create/snapshot/agent
+	// lifecycle/destroy require platform.environments.manage.
+	ListEnvironments() ([]EnvironmentSummary, error)
+	CreateEnvironment(req EnvironmentCreateRequest) (*EnvironmentSummary, error)
+	GetEnvironment(id string) (*EnvironmentSummary, error)
+	DestroyEnvironment(id string) error
+	SeedEnvironment(id string, calls []EnvironmentSeedCall, seedBaseDir string) ([]json.RawMessage, error)
+	CallEnvironmentApp(environmentID, appName, tool string, input map[string]any) (json.RawMessage, error)
+	CallEnvironmentAppResult(environmentID, appName, tool string, input map[string]any, out any) error
+	SnapshotEnvironment(environmentID string, req EnvironmentSnapshotRequest) (*EnvironmentSnapshot, error)
+	ListEnvironmentAgents(environmentID string) ([]EnvironmentAgent, error)
+	SpawnEnvironmentAgent(environmentID string, req EnvironmentAgentSpawnRequest) (*EnvironmentAgent, error)
+	StopEnvironmentAgent(environmentID string, agentOrAlias string) error
 }
 
 // PlatformInfo is the small "what does the operator have configured at
@@ -723,6 +751,117 @@ type PlatformProject struct {
 	ID          string `json:"id"`
 	Name        string `json:"name"`
 	Description string `json:"description,omitempty"`
+}
+
+// EnvironmentMode controls how the environment edge proxy handles
+// outbound network calls that do not match an explicit allowlist/mock.
+type EnvironmentMode string
+
+const (
+	EnvironmentModeBlock       EnvironmentMode = "block"
+	EnvironmentModePassthrough EnvironmentMode = "passthrough"
+	EnvironmentModeMock        EnvironmentMode = "mock"
+	EnvironmentModeRecord      EnvironmentMode = "record"
+	EnvironmentModeReplay      EnvironmentMode = "replay"
+)
+
+// EnvironmentCreateRequest is the body for PlatformClient.CreateEnvironment.
+// Apps should prefer AppInstallIDs when cloning real sidecar installs;
+// Apps is the legacy source-dir sandbox path.
+type EnvironmentCreateRequest struct {
+	ID                  string                       `json:"id,omitempty"`
+	ProjectID           string                       `json:"project_id,omitempty"`
+	GatewayURL          string                       `json:"gateway_url,omitempty"`
+	Apps                []string                     `json:"apps,omitempty"`
+	AppInstallIDs       []int64                      `json:"app_install_ids,omitempty"`
+	ConnectionIDs       []int64                      `json:"connection_ids,omitempty"`
+	Mode                EnvironmentMode              `json:"mode,omitempty"`
+	AllowSuffixes       []string                     `json:"allow_suffixes,omitempty"`
+	Mocks               []EnvironmentHTTPMock        `json:"mocks,omitempty"`
+	IntegrationFixtures []EnvironmentIntegrationMock `json:"integration_fixtures,omitempty"`
+	SeedPlan            []EnvironmentSeedCall        `json:"seed_plan,omitempty"`
+	SeedBaseDir         string                       `json:"seed_base_dir,omitempty"`
+	SnapshotID          string                       `json:"snapshot_id,omitempty"`
+}
+
+type EnvironmentSummary struct {
+	ID          string                        `json:"id"`
+	ProjectID   string                        `json:"project_id"`
+	Mode        EnvironmentMode               `json:"mode"`
+	ProxyURL    string                        `json:"proxy_url"`
+	Apps        map[string]EnvironmentAppInfo `json:"apps"`
+	Connections []EnvironmentConnectionInfo   `json:"connections"`
+	Agents      []EnvironmentAgent            `json:"agents"`
+}
+
+type EnvironmentAppInfo struct {
+	URL       string `json:"url"`
+	MCPURL    string `json:"mcp_url"`
+	DataDir   string `json:"data_dir"`
+	Kind      string `json:"kind"`
+	InstallID int64  `json:"install_id,omitempty"`
+}
+
+type EnvironmentConnectionInfo struct {
+	ID        int64  `json:"id"`
+	AppSlug   string `json:"app_slug"`
+	AppName   string `json:"app_name"`
+	Name      string `json:"name"`
+	Status    string `json:"status"`
+	ProjectID string `json:"project_id"`
+}
+
+type EnvironmentAgent struct {
+	AgentID       int64     `json:"agent_id"`
+	SourceAgentID int64     `json:"source_agent_id"`
+	SourceName    string    `json:"source_name"`
+	Alias         string    `json:"alias"`
+	Port          int       `json:"port"`
+	CreatedAt     time.Time `json:"created_at"`
+}
+
+type EnvironmentAgentSpawnRequest struct {
+	SourceAgentID int64  `json:"source_agent_id"`
+	Directive     string `json:"directive,omitempty"`
+	Alias         string `json:"alias,omitempty"`
+}
+
+type EnvironmentSeedCall struct {
+	App   string         `json:"app"`
+	Tool  string         `json:"tool"`
+	Input map[string]any `json:"input,omitempty"`
+	File  string         `json:"file,omitempty"`
+}
+
+type EnvironmentHTTPMock struct {
+	Host    string            `json:"host"`
+	Path    string            `json:"path"`
+	Method  string            `json:"method"`
+	Status  int               `json:"status,omitempty"`
+	Headers map[string]string `json:"headers,omitempty"`
+	Body    json.RawMessage   `json:"body,omitempty"`
+}
+
+type EnvironmentIntegrationMock struct {
+	App    string `json:"app"`
+	Tool   string `json:"tool"`
+	Status int    `json:"status,omitempty"`
+	Data   any    `json:"data,omitempty"`
+}
+
+type EnvironmentSnapshotRequest struct {
+	SnapshotID  string `json:"snapshot_id,omitempty"`
+	Description string `json:"description,omitempty"`
+}
+
+type EnvironmentSnapshot struct {
+	ID          string    `json:"id"`
+	ProjectID   string    `json:"project_id"`
+	Description string    `json:"description,omitempty"`
+	Apps        []string  `json:"apps"`
+	HasAgent    bool      `json:"has_agent"`
+	HasCassette bool      `json:"has_cassette"`
+	CreatedAt   time.Time `json:"created_at"`
 }
 
 // GrantsResponse is what GetGrants returns. DefaultEffect is the

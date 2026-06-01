@@ -49,6 +49,35 @@ func (s *stubProjectPlatformClient) SpawnRealtimeThread(RealtimeSpawnRequest) (*
 }
 func (s *stubProjectPlatformClient) KillThread(string) error              { return nil }
 func (s *stubProjectPlatformClient) PlatformInfo() (*PlatformInfo, error) { return nil, nil }
+func (s *stubProjectPlatformClient) ListEnvironments() ([]EnvironmentSummary, error) {
+	return nil, nil
+}
+func (s *stubProjectPlatformClient) CreateEnvironment(EnvironmentCreateRequest) (*EnvironmentSummary, error) {
+	return nil, nil
+}
+func (s *stubProjectPlatformClient) GetEnvironment(string) (*EnvironmentSummary, error) {
+	return nil, nil
+}
+func (s *stubProjectPlatformClient) DestroyEnvironment(string) error { return nil }
+func (s *stubProjectPlatformClient) SeedEnvironment(string, []EnvironmentSeedCall, string) ([]json.RawMessage, error) {
+	return nil, nil
+}
+func (s *stubProjectPlatformClient) CallEnvironmentApp(string, string, string, map[string]any) (json.RawMessage, error) {
+	return nil, nil
+}
+func (s *stubProjectPlatformClient) CallEnvironmentAppResult(string, string, string, map[string]any, any) error {
+	return nil
+}
+func (s *stubProjectPlatformClient) SnapshotEnvironment(string, EnvironmentSnapshotRequest) (*EnvironmentSnapshot, error) {
+	return nil, nil
+}
+func (s *stubProjectPlatformClient) ListEnvironmentAgents(string) ([]EnvironmentAgent, error) {
+	return nil, nil
+}
+func (s *stubProjectPlatformClient) SpawnEnvironmentAgent(string, EnvironmentAgentSpawnRequest) (*EnvironmentAgent, error) {
+	return nil, nil
+}
+func (s *stubProjectPlatformClient) StopEnvironmentAgent(string, string) error { return nil }
 
 func TestProjectScopedClientWhoAmIUsesScopedProjectMetadata(t *testing.T) {
 	base := &stubProjectPlatformClient{

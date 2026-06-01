@@ -136,3 +136,47 @@ func (BasePlatformClient) KillThread(string) error {
 func (BasePlatformClient) PlatformInfo() (*sdk.PlatformInfo, error) {
 	return nil, ErrNotImplemented
 }
+
+func (BasePlatformClient) ListEnvironments() ([]sdk.EnvironmentSummary, error) {
+	return nil, ErrNotImplemented
+}
+
+func (BasePlatformClient) CreateEnvironment(sdk.EnvironmentCreateRequest) (*sdk.EnvironmentSummary, error) {
+	return nil, ErrNotImplemented
+}
+
+func (BasePlatformClient) GetEnvironment(string) (*sdk.EnvironmentSummary, error) {
+	return nil, ErrNotImplemented
+}
+
+func (BasePlatformClient) DestroyEnvironment(string) error {
+	return ErrNotImplemented
+}
+
+func (BasePlatformClient) SeedEnvironment(string, []sdk.EnvironmentSeedCall, string) ([]json.RawMessage, error) {
+	return nil, ErrNotImplemented
+}
+
+func (BasePlatformClient) CallEnvironmentApp(string, string, string, map[string]any) (json.RawMessage, error) {
+	return nil, ErrNotImplemented
+}
+
+func (BasePlatformClient) CallEnvironmentAppResult(string, string, string, map[string]any, any) error {
+	return ErrNotImplemented
+}
+
+func (BasePlatformClient) SnapshotEnvironment(string, sdk.EnvironmentSnapshotRequest) (*sdk.EnvironmentSnapshot, error) {
+	return nil, ErrNotImplemented
+}
+
+func (BasePlatformClient) ListEnvironmentAgents(string) ([]sdk.EnvironmentAgent, error) {
+	return nil, ErrNotImplemented
+}
+
+func (BasePlatformClient) SpawnEnvironmentAgent(string, sdk.EnvironmentAgentSpawnRequest) (*sdk.EnvironmentAgent, error) {
+	return nil, ErrNotImplemented
+}
+
+func (BasePlatformClient) StopEnvironmentAgent(string, string) error {
+	return ErrNotImplemented
+}

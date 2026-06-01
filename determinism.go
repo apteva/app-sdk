@@ -31,6 +31,12 @@ var (
 	rndCounter atomic.Uint64
 )
 
+// CurrentEnvironmentID returns the id of the environment this app is
+// currently running inside, or "" for a normal production/dev sidecar.
+func CurrentEnvironmentID() string {
+	return os.Getenv("APTEVA_ENVIRONMENT_ID")
+}
+
 // detSeed reads APTEVA_SEED on each call (so the env can be set per run /
 // per test). Returns ok=false when unset or unparseable → production
 // behavior (real randomness).

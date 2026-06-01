@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"strconv"
 	"strings"
@@ -207,14 +208,8 @@ func decodeMCPEnvelope(raw json.RawMessage, appName, tool string, out any) error
 		return fmt.Errorf("%s.%s: empty response", appName, tool)
 	}
 	var env struct {
-		Result *struct {
-			Content []struct {
-				Type string `json:"type"`
-				Text string `json:"text"`
-			} `json:"content"`
-			IsError bool `json:"isError,omitempty"`
-		} `json:"result"`
-		Error *struct {
+		Result json.RawMessage `json:"result"`
+		Error  *struct {
 			Code    int    `json:"code"`
 			Message string `json:"message"`
 		} `json:"error,omitempty"`
@@ -228,23 +223,47 @@ func decodeMCPEnvelope(raw json.RawMessage, appName, tool string, out any) error
 	if env.Error != nil {
 		return fmt.Errorf("%s.%s: %s (code=%d)", appName, tool, env.Error.Message, env.Error.Code)
 	}
-	if env.Result == nil || len(env.Result.Content) == 0 {
-		// Either the response was already unwrapped (some test paths)
-		// or it had no content. Try direct decode; if that fails we
-		// surface the original bytes for diagnosis.
-		if jerr := json.Unmarshal(raw, out); jerr != nil {
-			return fmt.Errorf("%s.%s: response had no content array and direct decode failed: %w", appName, tool, jerr)
+	if len(env.Result) > 0 {
+		if handled, err := decodeMCPContent(env.Result, appName, tool, out); handled || err != nil {
+			return err
 		}
-		return nil
 	}
-	inner := env.Result.Content[0].Text
-	if inner == "" {
-		return fmt.Errorf("%s.%s: empty content text", appName, tool)
+	// Environment seed/app-call endpoints return the MCP result object
+	// directly ({content:[...]}) rather than the full JSON-RPC envelope.
+	if handled, err := decodeMCPContent(raw, appName, tool, out); handled || err != nil {
+		return err
 	}
-	if err := json.Unmarshal([]byte(inner), out); err != nil {
-		return fmt.Errorf("%s.%s: decode inner JSON: %w (text: %.200s)", appName, tool, err, inner)
+	// Either the response was already unwrapped (some test paths) or it
+	// had no content. Try direct decode; if that fails we surface the
+	// original bytes for diagnosis.
+	if jerr := json.Unmarshal(raw, out); jerr != nil {
+		return fmt.Errorf("%s.%s: response had no content array and direct decode failed: %w", appName, tool, jerr)
 	}
 	return nil
+}
+
+func decodeMCPContent(raw json.RawMessage, appName, tool string, out any) (bool, error) {
+	var result struct {
+		Content []struct {
+			Type string `json:"type"`
+			Text string `json:"text"`
+		} `json:"content"`
+		IsError bool `json:"isError,omitempty"`
+	}
+	if err := json.Unmarshal(raw, &result); err != nil || len(result.Content) == 0 {
+		return false, nil
+	}
+	inner := result.Content[0].Text
+	if inner == "" {
+		return true, fmt.Errorf("%s.%s: empty content text", appName, tool)
+	}
+	if result.IsError {
+		return true, fmt.Errorf("%s.%s: tool returned error: %.200s", appName, tool, inner)
+	}
+	if err := json.Unmarshal([]byte(inner), out); err != nil {
+		return true, fmt.Errorf("%s.%s: decode inner JSON: %w (text: %.200s)", appName, tool, err, inner)
+	}
+	return true, nil
 }
 
 func (c *httpPlatformClient) StartOAuth(req OAuthStartRequest) (*OAuthStartResult, error) {
@@ -305,6 +324,135 @@ func (c *httpPlatformClient) ListProjects() ([]PlatformProject, error) {
 		return nil, err
 	}
 	return out, nil
+}
+
+func (c *httpPlatformClient) ListEnvironments() ([]EnvironmentSummary, error) {
+	var out []EnvironmentSummary
+	if err := c.get("/api/environments", &out); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *httpPlatformClient) CreateEnvironment(req EnvironmentCreateRequest) (*EnvironmentSummary, error) {
+	var out EnvironmentSummary
+	if err := c.postWith(c.slowClient, "/api/environments", req, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+func (c *httpPlatformClient) GetEnvironment(id string) (*EnvironmentSummary, error) {
+	if strings.TrimSpace(id) == "" {
+		return nil, errors.New("GetEnvironment: id required")
+	}
+	var out EnvironmentSummary
+	if err := c.get("/api/environments/"+url.PathEscape(id), &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+func (c *httpPlatformClient) DestroyEnvironment(id string) error {
+	if strings.TrimSpace(id) == "" {
+		return errors.New("DestroyEnvironment: id required")
+	}
+	return c.delete("/api/environments/"+url.PathEscape(id), nil)
+}
+
+func (c *httpPlatformClient) SeedEnvironment(id string, calls []EnvironmentSeedCall, seedBaseDir string) ([]json.RawMessage, error) {
+	if strings.TrimSpace(id) == "" {
+		return nil, errors.New("SeedEnvironment: id required")
+	}
+	if len(calls) == 0 {
+		return []json.RawMessage{}, nil
+	}
+	body := map[string]any{"calls": calls}
+	if seedBaseDir != "" {
+		body["seed_base_dir"] = seedBaseDir
+	}
+	var out struct {
+		Results []json.RawMessage `json:"results"`
+	}
+	if err := c.postWith(c.slowClient, "/api/environments/"+url.PathEscape(id)+"/seed", body, &out); err != nil {
+		return nil, err
+	}
+	if out.Results == nil {
+		out.Results = []json.RawMessage{}
+	}
+	return out.Results, nil
+}
+
+func (c *httpPlatformClient) CallEnvironmentApp(environmentID, appName, tool string, input map[string]any) (json.RawMessage, error) {
+	if strings.TrimSpace(appName) == "" {
+		return nil, errors.New("CallEnvironmentApp: appName required")
+	}
+	if strings.TrimSpace(tool) == "" {
+		return nil, errors.New("CallEnvironmentApp: tool required")
+	}
+	results, err := c.SeedEnvironment(environmentID, []EnvironmentSeedCall{{App: appName, Tool: tool, Input: input}}, "")
+	if err != nil {
+		return nil, err
+	}
+	if len(results) == 0 {
+		return nil, fmt.Errorf("CallEnvironmentApp %s.%s: empty response", appName, tool)
+	}
+	return results[0], nil
+}
+
+func (c *httpPlatformClient) CallEnvironmentAppResult(environmentID, appName, tool string, input map[string]any, out any) error {
+	raw, err := c.CallEnvironmentApp(environmentID, appName, tool, input)
+	if err != nil {
+		return err
+	}
+	return decodeMCPEnvelope(raw, appName, tool, out)
+}
+
+func (c *httpPlatformClient) SnapshotEnvironment(environmentID string, req EnvironmentSnapshotRequest) (*EnvironmentSnapshot, error) {
+	if strings.TrimSpace(environmentID) == "" {
+		return nil, errors.New("SnapshotEnvironment: environmentID required")
+	}
+	var out EnvironmentSnapshot
+	if err := c.postWith(c.slowClient, "/api/environments/"+url.PathEscape(environmentID)+"/snapshot", req, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+func (c *httpPlatformClient) ListEnvironmentAgents(environmentID string) ([]EnvironmentAgent, error) {
+	if strings.TrimSpace(environmentID) == "" {
+		return nil, errors.New("ListEnvironmentAgents: environmentID required")
+	}
+	var out []EnvironmentAgent
+	if err := c.get("/api/environments/"+url.PathEscape(environmentID)+"/agents", &out); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *httpPlatformClient) SpawnEnvironmentAgent(environmentID string, req EnvironmentAgentSpawnRequest) (*EnvironmentAgent, error) {
+	if strings.TrimSpace(environmentID) == "" {
+		return nil, errors.New("SpawnEnvironmentAgent: environmentID required")
+	}
+	if req.SourceAgentID == 0 {
+		return nil, errors.New("SpawnEnvironmentAgent: source_agent_id required")
+	}
+	var out EnvironmentAgent
+	if err := c.postWith(c.slowClient, "/api/environments/"+url.PathEscape(environmentID)+"/agents", req, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+func (c *httpPlatformClient) StopEnvironmentAgent(environmentID string, agentOrAlias string) error {
+	if strings.TrimSpace(environmentID) == "" {
+		return errors.New("StopEnvironmentAgent: environmentID required")
+	}
+	path := "/api/environments/" + url.PathEscape(environmentID) + "/agent"
+	if strings.TrimSpace(agentOrAlias) != "" {
+		path = "/api/environments/" + url.PathEscape(environmentID) + "/agents/" + url.PathEscape(agentOrAlias)
+	}
+	return c.delete(path, nil)
 }
 
 // SpawnRealtimeThread hits /api/apps/callback/threads/spawn-realtime.
@@ -479,6 +627,42 @@ func (p *projectScopedClient) KillThread(threadID string) error {
 func (p *projectScopedClient) PlatformInfo() (*PlatformInfo, error) {
 	return p.inner.PlatformInfo()
 }
+func (p *projectScopedClient) ListEnvironments() ([]EnvironmentSummary, error) {
+	return p.inner.ListEnvironments()
+}
+func (p *projectScopedClient) CreateEnvironment(req EnvironmentCreateRequest) (*EnvironmentSummary, error) {
+	if req.ProjectID == "" {
+		req.ProjectID = p.projectID
+	}
+	return p.inner.CreateEnvironment(req)
+}
+func (p *projectScopedClient) GetEnvironment(id string) (*EnvironmentSummary, error) {
+	return p.inner.GetEnvironment(id)
+}
+func (p *projectScopedClient) DestroyEnvironment(id string) error {
+	return p.inner.DestroyEnvironment(id)
+}
+func (p *projectScopedClient) SeedEnvironment(id string, calls []EnvironmentSeedCall, seedBaseDir string) ([]json.RawMessage, error) {
+	return p.inner.SeedEnvironment(id, calls, seedBaseDir)
+}
+func (p *projectScopedClient) CallEnvironmentApp(environmentID, appName, tool string, input map[string]any) (json.RawMessage, error) {
+	return p.inner.CallEnvironmentApp(environmentID, appName, tool, input)
+}
+func (p *projectScopedClient) CallEnvironmentAppResult(environmentID, appName, tool string, input map[string]any, out any) error {
+	return p.inner.CallEnvironmentAppResult(environmentID, appName, tool, input, out)
+}
+func (p *projectScopedClient) SnapshotEnvironment(environmentID string, req EnvironmentSnapshotRequest) (*EnvironmentSnapshot, error) {
+	return p.inner.SnapshotEnvironment(environmentID, req)
+}
+func (p *projectScopedClient) ListEnvironmentAgents(environmentID string) ([]EnvironmentAgent, error) {
+	return p.inner.ListEnvironmentAgents(environmentID)
+}
+func (p *projectScopedClient) SpawnEnvironmentAgent(environmentID string, req EnvironmentAgentSpawnRequest) (*EnvironmentAgent, error) {
+	return p.inner.SpawnEnvironmentAgent(environmentID, req)
+}
+func (p *projectScopedClient) StopEnvironmentAgent(environmentID string, agentOrAlias string) error {
+	return p.inner.StopEnvironmentAgent(environmentID, agentOrAlias)
+}
 
 // --- low-level helpers -------------------------------------------------------
 
@@ -513,6 +697,23 @@ func (c *httpPlatformClient) postWith(client *http.Client, path string, body any
 	req.Header.Set("Content-Type", "application/json")
 	c.addAuth(req)
 	resp, err := client.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode/100 != 2 {
+		return c.platformErr(resp)
+	}
+	if out == nil {
+		return nil
+	}
+	return json.NewDecoder(resp.Body).Decode(out)
+}
+
+func (c *httpPlatformClient) delete(path string, out any) error {
+	req, _ := http.NewRequest(http.MethodDelete, c.baseURL+path, nil)
+	c.addAuth(req)
+	resp, err := c.client.Do(req)
 	if err != nil {
 		return err
 	}

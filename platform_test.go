@@ -12,6 +12,8 @@ package sdk
 
 import (
 	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 )
@@ -47,6 +49,19 @@ func TestDecodeMCPEnvelope_AlreadyUnwrapped(t *testing.T) {
 	}
 	if len(out.Folders) != 3 || out.Folders[0] != "a" {
 		t.Errorf("decoded shape = %+v", out)
+	}
+}
+
+func TestDecodeMCPEnvelope_BareMCPResult(t *testing.T) {
+	raw := json.RawMessage(`{"content":[{"type":"text","text":"{\"ok\":true}"}]}`)
+	var out struct {
+		OK bool `json:"ok"`
+	}
+	if err := decodeMCPEnvelope(raw, "trading", "portfolio_get", &out); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if !out.OK {
+		t.Fatalf("decoded OK=false")
 	}
 }
 
@@ -89,5 +104,48 @@ func TestDecodeMCPEnvelope_NilOut(t *testing.T) {
 	raw := json.RawMessage(`{"jsonrpc":"2.0","id":1,"result":{"content":[{"type":"text","text":"{}"}]}}`)
 	if err := decodeMCPEnvelope(raw, "x", "y", nil); err == nil {
 		t.Errorf("expected error for nil out")
+	}
+}
+
+func TestEnvironmentClientCallAppResult(t *testing.T) {
+	var sawAuth bool
+	var sawPath bool
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/api/environments/env-1/seed" && r.Method == http.MethodPost {
+			sawPath = true
+			sawAuth = r.Header.Get("Authorization") == "Bearer test-token"
+			var body struct {
+				Calls []EnvironmentSeedCall `json:"calls"`
+			}
+			if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+				t.Fatalf("decode request: %v", err)
+			}
+			if len(body.Calls) != 1 || body.Calls[0].App != "trading" || body.Calls[0].Tool != "portfolio_step" {
+				t.Fatalf("unexpected seed body: %+v", body)
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"results": []json.RawMessage{json.RawMessage(`{"content":[{"type":"text","text":"{\"status\":\"ok\"}"}]}`)},
+			})
+			return
+		}
+		http.NotFound(w, r)
+	}))
+	defer ts.Close()
+
+	api := newHTTPPlatformClient(ts.URL, "test-token")
+	var out struct {
+		Status string `json:"status"`
+	}
+	if err := api.CallEnvironmentAppResult("env-1", "trading", "portfolio_step", map[string]any{"tick": 1}, &out); err != nil {
+		t.Fatalf("CallEnvironmentAppResult: %v", err)
+	}
+	if !sawPath {
+		t.Fatalf("environment seed endpoint was not called")
+	}
+	if !sawAuth {
+		t.Fatalf("Authorization header not forwarded")
+	}
+	if out.Status != "ok" {
+		t.Fatalf("status=%q, want ok", out.Status)
 	}
 }

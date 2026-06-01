@@ -758,6 +758,17 @@ const (
 	// must opt in by installing the app AND flipping the instance's
 	// Config.RealtimeEnabled flag.
 	PermRealtimeSpawn Permission = "platform.realtime.spawn"
+	// PermEnvironmentsRead lets an app inspect live test/backtest
+	// environments visible to its installing user.
+	PermEnvironmentsRead Permission = "platform.environments.read"
+	// PermEnvironmentsCall lets an app seed or call tools inside an
+	// environment. This is the narrow execution surface for backtest
+	// runners and evaluators.
+	PermEnvironmentsCall Permission = "platform.environments.call"
+	// PermEnvironmentsManage lets an app create, snapshot, spawn/stop
+	// environment agents, and destroy environments. Treat this as a
+	// control-plane permission; most apps should not need it.
+	PermEnvironmentsManage Permission = "platform.environments.manage"
 )
 
 // AllPermissions returns the full taxonomy — used by the dashboard's
@@ -772,6 +783,7 @@ func AllPermissions() []Permission {
 		PermOAuthStart, PermConnectionsManage,
 		PermConnectionsReadCredentials,
 		PermRealtimeSpawn,
+		PermEnvironmentsRead, PermEnvironmentsCall, PermEnvironmentsManage,
 	}
 }
 
