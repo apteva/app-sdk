@@ -184,9 +184,9 @@ func splitNamespacedResource(s string) (ns, id string, ok bool) {
 // globMatch implements a small subset of shell glob — enough for
 // folder-style hierarchical resources.
 //
-//	*  matches any run of non-slash characters
-//	** matches any run of characters including slashes
-//	?  matches one non-slash character
+//   - * matches any run of non-slash characters
+//   - ** matches any run of characters including slashes
+//   - ? matches one non-slash character
 //
 // Patterns are anchored at both ends. Empty pattern matches empty
 // resource. This is hand-rolled to avoid a heavy dependency for what

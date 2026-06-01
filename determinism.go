@@ -1,18 +1,18 @@
 package sdk
 
-// determinism.go — opt-in determinism helpers for World test runs.
+// determinism.go — opt-in determinism helpers for Environment test runs.
 //
 // External egress and storage are virtualised by the platform with zero app
 // changes (HTTP edge + throwaway data dir). The one thing the platform
 // can't control from outside is the values an app generates internally:
 // the wall clock, ids, and randomness. Apps that route those through
 // ctx.Now() / ctx.NewID() / ctx.Rand() become byte-for-byte repeatable
-// inside a World — when the platform sets APTEVA_FAKE_TIME / APTEVA_SEED —
+// inside an Environment — when the platform sets APTEVA_FAKE_TIME / APTEVA_SEED —
 // while behaving exactly as before in production (env unset → real time,
 // crypto-random ids).
 //
 // Adoption is incremental: an app that keeps calling time.Now()/rand
-// directly still runs fine in a World, it's just nondeterministic in those
+// directly still runs fine in an Environment, it's just nondeterministic in those
 // spots. Nothing here changes existing behavior unless the env is set.
 
 import (
@@ -59,7 +59,7 @@ func (c *AppCtx) Now() time.Time {
 }
 
 // NewID returns a unique id — deterministic + monotonic when APTEVA_SEED is
-// set (so a World run is repeatable), otherwise a 128-bit random hex string.
+// set (so a Environment run is repeatable), otherwise a 128-bit random hex string.
 func (c *AppCtx) NewID() string {
 	if _, ok := detSeed(); ok {
 		return fmt.Sprintf("id-%016x", idCounter.Add(1))
@@ -71,7 +71,7 @@ func (c *AppCtx) NewID() string {
 
 // Rand returns a *math/rand.Rand. When APTEVA_SEED is set each call returns
 // a generator seeded deterministically from (seed, call index), so repeated
-// World runs produce identical sequences; otherwise it's time-seeded. Each
+// Environment runs produce identical sequences; otherwise it's time-seeded. Each
 // returned *Rand is independent and safe to use within one goroutine.
 func (c *AppCtx) Rand() *mrand.Rand {
 	if seed, ok := detSeed(); ok {

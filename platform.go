@@ -534,11 +534,11 @@ func (c *httpPlatformClient) addAuth(req *http.Request) {
 		req.Header.Set("Authorization", "Bearer "+c.token)
 	}
 	req.Header.Set("X-Apteva-App-Install-ID", os.Getenv("APTEVA_INSTALL_ID"))
-	// When this sidecar runs inside a test World, forward the world id so
-	// the platform routes its integration calls to that world's interceptor
-	// (per-world test mode). Empty/unset in production → no-op header.
-	if wid := os.Getenv("APTEVA_WORLD_ID"); wid != "" {
-		req.Header.Set("X-Apteva-World-Id", wid)
+	// When this sidecar runs inside a test Environment, forward the
+	// environment id so the platform routes its integration calls to that
+	// environment's interceptor. Empty/unset in production is a no-op.
+	if eid := os.Getenv("APTEVA_ENVIRONMENT_ID"); eid != "" {
+		req.Header.Set("X-Apteva-Environment-Id", eid)
 	}
 }
 
