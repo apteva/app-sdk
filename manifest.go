@@ -386,9 +386,13 @@ type UIComponent struct {
 }
 
 // RouteSpec — the app sidecar serves these prefixes; platform reverse-
-// proxies /apps/<name><prefix> to the sidecar.
+// proxies /apps/<name><prefix> to the sidecar. no_auth lets the
+// platform gateway pass anonymous requests through to a route that
+// does its own token/signature validation.
 type RouteSpec struct {
+	Method string `yaml:"method,omitempty" json:"method,omitempty"`
 	Prefix string `yaml:"prefix" json:"prefix"`
+	NoAuth bool   `yaml:"no_auth,omitempty" json:"no_auth,omitempty"`
 }
 
 // MCPToolSpec is the per-tool entry the sidecar's MCP endpoint exposes.
