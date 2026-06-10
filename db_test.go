@@ -11,9 +11,13 @@ package sdk
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -198,6 +202,244 @@ func TestOpenAppDB_PragmasAreSet(t *testing.T) {
 	}
 	if fk != 1 {
 		t.Errorf("foreign_keys=%d, want 1", fk)
+	}
+}
+
+func TestOpenAppDB_HighConcurrencyWritesQueueWithoutBusy(t *testing.T) {
+	dir := t.TempDir()
+	cfg := &DBConfig{Driver: "sqlite", Path: filepath.Join(dir, "stress.db")}
+	db, err := openAppDB(cfg, &captureLogger{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+
+	if got := db.Stats().MaxOpenConnections; got != 1 {
+		t.Fatalf("MaxOpenConnections=%d, want 1 so concurrent app writes queue in Go", got)
+	}
+	if _, err := db.Exec(`CREATE TABLE writes (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		worker INTEGER NOT NULL,
+		n INTEGER NOT NULL,
+		body TEXT NOT NULL
+	)`); err != nil {
+		t.Fatalf("create table: %v", err)
+	}
+
+	const workers = 64
+	const writesPerWorker = 50
+	deadline := time.After(15 * time.Second)
+	errs := make(chan error, workers)
+	var completed atomic.Int64
+	var wg sync.WaitGroup
+	start := make(chan struct{})
+	for worker := 0; worker < workers; worker++ {
+		wg.Add(1)
+		go func(worker int) {
+			defer wg.Done()
+			<-start
+			for n := 0; n < writesPerWorker; n++ {
+				ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+				_, err := db.ExecContext(ctx,
+					`INSERT INTO writes (worker, n, body) VALUES (?, ?, ?)`,
+					worker, n, fmt.Sprintf("worker-%02d-%02d", worker, n),
+				)
+				cancel()
+				if err != nil {
+					if strings.Contains(strings.ToLower(err.Error()), "busy") ||
+						strings.Contains(strings.ToLower(err.Error()), "locked") {
+						errs <- fmt.Errorf("unexpected sqlite contention error: %w", err)
+						return
+					}
+					errs <- err
+					return
+				}
+				completed.Add(1)
+			}
+		}(worker)
+	}
+	close(start)
+
+	done := make(chan struct{})
+	go func() {
+		wg.Wait()
+		close(done)
+	}()
+
+	select {
+	case <-done:
+	case <-deadline:
+		t.Fatalf("concurrent writes hung: completed %d/%d", completed.Load(), workers*writesPerWorker)
+	}
+	close(errs)
+	for err := range errs {
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	var count int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM writes`).Scan(&count); err != nil {
+		t.Fatalf("count writes: %v", err)
+	}
+	if count != workers*writesPerWorker {
+		t.Fatalf("rows=%d, want %d", count, workers*writesPerWorker)
+	}
+}
+
+func TestOpenAppDB_ReadWriteMixQueueWithoutBusy(t *testing.T) {
+	dir := t.TempDir()
+	cfg := &DBConfig{Driver: "sqlite", Path: filepath.Join(dir, "mixed.db")}
+	db, err := openAppDB(cfg, &captureLogger{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+
+	if _, err := db.Exec(`CREATE TABLE items (id INTEGER PRIMARY KEY AUTOINCREMENT, value TEXT NOT NULL)`); err != nil {
+		t.Fatalf("create table: %v", err)
+	}
+
+	const writers = 24
+	const readers = 24
+	const iterations = 100
+	errs := make(chan error, writers+readers)
+	var wg sync.WaitGroup
+	start := make(chan struct{})
+
+	for worker := 0; worker < writers; worker++ {
+		wg.Add(1)
+		go func(worker int) {
+			defer wg.Done()
+			<-start
+			for i := 0; i < iterations; i++ {
+				ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+				_, err := db.ExecContext(ctx, `INSERT INTO items (value) VALUES (?)`, fmt.Sprintf("%d:%d", worker, i))
+				cancel()
+				if err != nil {
+					errs <- err
+					return
+				}
+			}
+		}(worker)
+	}
+	for reader := 0; reader < readers; reader++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			<-start
+			for i := 0; i < iterations; i++ {
+				ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+				var count int
+				err := db.QueryRowContext(ctx, `SELECT COUNT(*) FROM items`).Scan(&count)
+				cancel()
+				if err != nil {
+					errs <- err
+					return
+				}
+			}
+		}()
+	}
+	close(start)
+
+	done := make(chan struct{})
+	go func() {
+		wg.Wait()
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(15 * time.Second):
+		t.Fatal("mixed read/write stress hung")
+	}
+	close(errs)
+	for err := range errs {
+		if err == nil {
+			continue
+		}
+		lower := strings.ToLower(err.Error())
+		if strings.Contains(lower, "busy") || strings.Contains(lower, "locked") {
+			t.Fatalf("unexpected sqlite contention error: %v", err)
+		}
+		t.Fatal(err)
+	}
+}
+
+func TestOpenAppDB_NestedQueryWithOpenRowsFailsFastWithContext(t *testing.T) {
+	dir := t.TempDir()
+	cfg := &DBConfig{Driver: "sqlite", Path: filepath.Join(dir, "nested.db")}
+	db, err := openAppDB(cfg, &captureLogger{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+
+	if _, err := db.Exec(`CREATE TABLE items (id INTEGER PRIMARY KEY); INSERT INTO items (id) VALUES (1), (2)`); err != nil {
+		t.Fatalf("setup: %v", err)
+	}
+	rows, err := db.Query(`SELECT id FROM items ORDER BY id`)
+	if err != nil {
+		t.Fatalf("outer query: %v", err)
+	}
+	defer rows.Close()
+	if !rows.Next() {
+		t.Fatal("outer rows unexpectedly empty")
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	defer cancel()
+	start := time.Now()
+	err = db.QueryRowContext(ctx, `SELECT COUNT(*) FROM items`).Scan(new(int))
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("nested query with open rows error=%v, want context deadline exceeded", err)
+	}
+	if elapsed := time.Since(start); elapsed > time.Second {
+		t.Fatalf("nested query did not fail fast; elapsed=%s", elapsed)
+	}
+}
+
+func TestOpenAppDB_CloseRowsBeforeNestedQueryDoesNotHang(t *testing.T) {
+	dir := t.TempDir()
+	cfg := &DBConfig{Driver: "sqlite", Path: filepath.Join(dir, "nested-safe.db")}
+	db, err := openAppDB(cfg, &captureLogger{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+
+	if _, err := db.Exec(`CREATE TABLE items (id INTEGER PRIMARY KEY); INSERT INTO items (id) VALUES (1), (2)`); err != nil {
+		t.Fatalf("setup: %v", err)
+	}
+	rows, err := db.Query(`SELECT id FROM items ORDER BY id`)
+	if err != nil {
+		t.Fatalf("outer query: %v", err)
+	}
+	ids := []int{}
+	for rows.Next() {
+		var id int
+		if err := rows.Scan(&id); err != nil {
+			t.Fatalf("scan: %v", err)
+		}
+		ids = append(ids, id)
+	}
+	if err := rows.Close(); err != nil {
+		t.Fatalf("close rows: %v", err)
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatalf("rows err: %v", err)
+	}
+	if len(ids) != 2 {
+		t.Fatalf("ids=%v, want 2 rows", ids)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	var count int
+	if err := db.QueryRowContext(ctx, `SELECT COUNT(*) FROM items`).Scan(&count); err != nil {
+		t.Fatalf("nested query after closing rows failed: %v", err)
+	}
+	if count != 2 {
+		t.Fatalf("count=%d, want 2", count)
 	}
 }
 
