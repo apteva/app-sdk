@@ -773,6 +773,20 @@ const (
 	// environment agents, and destroy environments. Treat this as a
 	// control-plane permission; most apps should not need it.
 	PermEnvironmentsManage Permission = "platform.environments.manage"
+	// PermIngressRead lets an app inspect public hostnames it owns.
+	PermIngressRead Permission = "platform.ingress.read"
+	// PermIngressWrite lets an app expose and unexpose hostnames
+	// through server-native ingress and managed certificate issuance.
+	PermIngressWrite Permission = "platform.ingress.write"
+	// PermDNSRead lets an app inspect delegated DNS zones available
+	// through the platform. This is intentionally capability-level:
+	// the backing authority may be a local Domains app, Fleet, or a
+	// parent hosting controller.
+	PermDNSRead Permission = "platform.dns.read"
+	// PermDNSWrite lets an app upsert/delete DNS records through a
+	// scoped platform grant. The server validates the requested record
+	// against the grant before forwarding to the backing controller.
+	PermDNSWrite Permission = "platform.dns.write"
 )
 
 // AllPermissions returns the full taxonomy — used by the dashboard's
@@ -788,6 +802,8 @@ func AllPermissions() []Permission {
 		PermConnectionsReadCredentials,
 		PermRealtimeSpawn,
 		PermEnvironmentsRead, PermEnvironmentsCall, PermEnvironmentsManage,
+		PermIngressRead, PermIngressWrite,
+		PermDNSRead, PermDNSWrite,
 	}
 }
 

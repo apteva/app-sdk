@@ -326,6 +326,65 @@ func (c *httpPlatformClient) ListProjects() ([]PlatformProject, error) {
 	return out, nil
 }
 
+func (c *httpPlatformClient) ExposeIngress(req IngressExposeRequest) (*IngressRoute, error) {
+	var out struct {
+		Route IngressRoute `json:"route"`
+	}
+	if err := c.post("/api/apps/callback/ingress/expose", req, &out); err != nil {
+		return nil, err
+	}
+	return &out.Route, nil
+}
+
+func (c *httpPlatformClient) UnexposeIngress(hostname string) error {
+	if strings.TrimSpace(hostname) == "" {
+		return errors.New("UnexposeIngress: hostname required")
+	}
+	return c.post("/api/apps/callback/ingress/unexpose", map[string]any{"hostname": hostname}, nil)
+}
+
+func (c *httpPlatformClient) ListIngressRoutes() ([]IngressRoute, error) {
+	var out struct {
+		Routes []IngressRoute `json:"routes"`
+	}
+	if err := c.get("/api/apps/callback/ingress/routes", &out); err != nil {
+		return nil, err
+	}
+	if out.Routes == nil {
+		out.Routes = []IngressRoute{}
+	}
+	return out.Routes, nil
+}
+
+func (c *httpPlatformClient) ListDomainGrants() ([]DomainGrant, error) {
+	var out struct {
+		Grants []DomainGrant `json:"grants"`
+	}
+	if err := c.get("/api/apps/callback/dns/grants", &out); err != nil {
+		return nil, err
+	}
+	if out.Grants == nil {
+		out.Grants = []DomainGrant{}
+	}
+	return out.Grants, nil
+}
+
+func (c *httpPlatformClient) UpsertDNSRecord(req DNSRecordRequest) (*DNSRecordResult, error) {
+	var out DNSRecordResult
+	if err := c.post("/api/apps/callback/dns/records", req, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+func (c *httpPlatformClient) DeleteDNSRecord(req DNSRecordRequest) (*DNSRecordResult, error) {
+	var out DNSRecordResult
+	if err := c.deleteWithBody("/api/apps/callback/dns/records", req, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
 func (c *httpPlatformClient) ListEnvironments() ([]EnvironmentSummary, error) {
 	var out []EnvironmentSummary
 	if err := c.get("/api/environments", &out); err != nil {
@@ -618,6 +677,33 @@ func (p *projectScopedClient) GetConnectionCredentials(id int64) (*ConnectionCre
 func (p *projectScopedClient) ListProjects() ([]PlatformProject, error) {
 	return p.inner.ListProjects()
 }
+func (p *projectScopedClient) ExposeIngress(req IngressExposeRequest) (*IngressRoute, error) {
+	if req.ProjectID == "" {
+		req.ProjectID = p.projectID
+	}
+	return p.inner.ExposeIngress(req)
+}
+func (p *projectScopedClient) UnexposeIngress(hostname string) error {
+	return p.inner.UnexposeIngress(hostname)
+}
+func (p *projectScopedClient) ListIngressRoutes() ([]IngressRoute, error) {
+	return p.inner.ListIngressRoutes()
+}
+func (p *projectScopedClient) ListDomainGrants() ([]DomainGrant, error) {
+	return p.inner.ListDomainGrants()
+}
+func (p *projectScopedClient) UpsertDNSRecord(req DNSRecordRequest) (*DNSRecordResult, error) {
+	if req.ProjectID == "" {
+		req.ProjectID = p.projectID
+	}
+	return p.inner.UpsertDNSRecord(req)
+}
+func (p *projectScopedClient) DeleteDNSRecord(req DNSRecordRequest) (*DNSRecordResult, error) {
+	if req.ProjectID == "" {
+		req.ProjectID = p.projectID
+	}
+	return p.inner.DeleteDNSRecord(req)
+}
 func (p *projectScopedClient) SpawnRealtimeThread(req RealtimeSpawnRequest) (*RealtimeSpawnResult, error) {
 	return p.inner.SpawnRealtimeThread(req)
 }
@@ -697,6 +783,34 @@ func (c *httpPlatformClient) postWith(client *http.Client, path string, body any
 	req.Header.Set("Content-Type", "application/json")
 	c.addAuth(req)
 	resp, err := client.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode/100 != 2 {
+		return c.platformErr(resp)
+	}
+	if out == nil {
+		return nil
+	}
+	return json.NewDecoder(resp.Body).Decode(out)
+}
+
+func (c *httpPlatformClient) deleteWithBody(path string, body any, out any) error {
+	var br io.Reader
+	if body != nil {
+		buf, err := json.Marshal(body)
+		if err != nil {
+			return err
+		}
+		br = bytes.NewReader(buf)
+	}
+	req, _ := http.NewRequest(http.MethodDelete, c.baseURL+path, br)
+	if body != nil {
+		req.Header.Set("Content-Type", "application/json")
+	}
+	c.addAuth(req)
+	resp, err := c.client.Do(req)
 	if err != nil {
 		return err
 	}

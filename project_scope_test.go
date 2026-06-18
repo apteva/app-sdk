@@ -44,6 +44,22 @@ func (s *stubProjectPlatformClient) GetConnectionCredentials(int64) (*Connection
 func (s *stubProjectPlatformClient) ListProjects() ([]PlatformProject, error) {
 	return s.projects, nil
 }
+func (s *stubProjectPlatformClient) ExposeIngress(IngressExposeRequest) (*IngressRoute, error) {
+	return nil, nil
+}
+func (s *stubProjectPlatformClient) UnexposeIngress(string) error { return nil }
+func (s *stubProjectPlatformClient) ListIngressRoutes() ([]IngressRoute, error) {
+	return nil, nil
+}
+func (s *stubProjectPlatformClient) ListDomainGrants() ([]DomainGrant, error) {
+	return nil, nil
+}
+func (s *stubProjectPlatformClient) UpsertDNSRecord(DNSRecordRequest) (*DNSRecordResult, error) {
+	return nil, nil
+}
+func (s *stubProjectPlatformClient) DeleteDNSRecord(DNSRecordRequest) (*DNSRecordResult, error) {
+	return nil, nil
+}
 func (s *stubProjectPlatformClient) SpawnRealtimeThread(RealtimeSpawnRequest) (*RealtimeSpawnResult, error) {
 	return nil, nil
 }

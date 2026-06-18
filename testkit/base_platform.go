@@ -115,6 +115,30 @@ func (BasePlatformClient) ListProjects() ([]sdk.PlatformProject, error) {
 	return nil, ErrNotImplemented
 }
 
+func (BasePlatformClient) ExposeIngress(sdk.IngressExposeRequest) (*sdk.IngressRoute, error) {
+	return nil, ErrNotImplemented
+}
+
+func (BasePlatformClient) UnexposeIngress(string) error {
+	return ErrNotImplemented
+}
+
+func (BasePlatformClient) ListIngressRoutes() ([]sdk.IngressRoute, error) {
+	return nil, ErrNotImplemented
+}
+
+func (BasePlatformClient) ListDomainGrants() ([]sdk.DomainGrant, error) {
+	return nil, ErrNotImplemented
+}
+
+func (BasePlatformClient) UpsertDNSRecord(sdk.DNSRecordRequest) (*sdk.DNSRecordResult, error) {
+	return nil, ErrNotImplemented
+}
+
+func (BasePlatformClient) DeleteDNSRecord(sdk.DNSRecordRequest) (*sdk.DNSRecordResult, error) {
+	return nil, ErrNotImplemented
+}
+
 // SpawnRealtimeThread defaults to ErrNotImplemented. Apps that
 // exercise realtime spawning (telephony, voice bridges) override
 // this to capture the request and return a synthetic

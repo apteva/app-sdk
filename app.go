@@ -696,6 +696,36 @@ type PlatformClient interface {
 	// Use ctx.PlatformInfo() as the convenience shortcut.
 	PlatformInfo() (*PlatformInfo, error)
 
+	// Ingress
+	//
+	// Server-native ingress exposes public hostnames through
+	// apteva-server's own host router and managed certificate flow.
+	// Domains/DNS remain external: callers that need the platform to
+	// create DNS records should call the Domains app first, then expose
+	// the hostname here. Exact hostnames can be certified through
+	// HTTP-01 when DNS already points at the Apteva server; wildcard
+	// hostnames require future DNS-01 delegation.
+	//
+	// Authorization: ExposeIngress/UnexposeIngress require
+	// platform.ingress.write. ListIngressRoutes requires
+	// platform.ingress.read or .write and is scoped to routes owned by
+	// this install.
+	ExposeIngress(req IngressExposeRequest) (*IngressRoute, error)
+	UnexposeIngress(hostname string) error
+	ListIngressRoutes() ([]IngressRoute, error)
+
+	// DNS
+	//
+	// Platform DNS is the delegated capability surface for apps that
+	// need records without owning registrar/provider credentials. The
+	// backing authority may be local Domains, Fleet, or a parent
+	// hosting controller. Callers declare platform.dns.read/.write;
+	// the server validates every write against available grants before
+	// forwarding it.
+	ListDomainGrants() ([]DomainGrant, error)
+	UpsertDNSRecord(req DNSRecordRequest) (*DNSRecordResult, error)
+	DeleteDNSRecord(req DNSRecordRequest) (*DNSRecordResult, error)
+
 	// Environments
 	//
 	// These methods expose the platform's isolated test/backtest
@@ -751,6 +781,69 @@ type PlatformProject struct {
 	ID          string `json:"id"`
 	Name        string `json:"name"`
 	Description string `json:"description,omitempty"`
+}
+
+// IngressExposeRequest is the body for PlatformClient.ExposeIngress.
+// Target must be an absolute http://, https://, or app:// URL.
+type IngressExposeRequest struct {
+	Hostname  string `json:"hostname"`
+	Target    string `json:"target"`
+	ProjectID string `json:"project_id,omitempty"`
+	OwnerKind string `json:"owner_kind,omitempty"`
+	CertFQDN  string `json:"cert_fqdn,omitempty"`
+	AllowHTTP bool   `json:"allow_http,omitempty"`
+	TLSMode   string `json:"tls_mode,omitempty"` // "auto" (default) or "off"
+	TLS       string `json:"tls,omitempty"`      // alias accepted by older callers
+}
+
+// IngressRoute is one server-native hostname exposure owned by an app
+// install.
+type IngressRoute struct {
+	ID             int64  `json:"id"`
+	Hostname       string `json:"hostname"`
+	Target         string `json:"target"`
+	ProjectID      string `json:"project_id"`
+	OwnerInstallID int64  `json:"owner_install_id"`
+	OwnerKind      string `json:"owner_kind"`
+	CertFQDN       string `json:"cert_fqdn,omitempty"`
+	AllowHTTP      bool   `json:"allow_http"`
+	TLSMode        string `json:"tls_mode"`
+	Status         string `json:"status"`
+	CreatedAt      string `json:"created_at"`
+	UpdatedAt      string `json:"updated_at"`
+}
+
+// DomainGrant is one DNS zone/prefix the platform is willing to
+// manage on behalf of the calling app's instance.
+type DomainGrant struct {
+	ID          string   `json:"id,omitempty"`
+	Domain      string   `json:"domain"`
+	Wildcard    bool     `json:"wildcard"`
+	Status      string   `json:"status,omitempty"`
+	Source      string   `json:"source,omitempty"`
+	Actions     []string `json:"actions,omitempty"`
+	RecordTypes []string `json:"record_types,omitempty"`
+}
+
+// DNSRecordRequest is the generic platform-DNS record mutation shape.
+// Name is relative to Domain; use "@" for the zone apex.
+type DNSRecordRequest struct {
+	ProjectID string `json:"project_id,omitempty"`
+	Domain    string `json:"domain"`
+	Name      string `json:"name"`
+	Type      string `json:"type"`
+	Value     string `json:"value,omitempty"`
+	TTL       int    `json:"ttl,omitempty"`
+}
+
+type DNSRecordResult struct {
+	OK      bool   `json:"ok"`
+	Action  string `json:"action,omitempty"`
+	Backend string `json:"backend,omitempty"`
+	Domain  string `json:"domain,omitempty"`
+	Name    string `json:"name,omitempty"`
+	Type    string `json:"type,omitempty"`
+	Error   string `json:"error,omitempty"`
 }
 
 // EnvironmentMode controls how the environment edge proxy handles
