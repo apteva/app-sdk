@@ -412,6 +412,27 @@ type MCPToolSpec struct {
 	// using the resource type's Matcher. Empty = handler-side
 	// enforcement (gate skipped, app filters returns itself).
 	ResourceFrom string `yaml:"resource_from,omitempty" json:"resource_from,omitempty"`
+	// AsyncResult declares that this tool returns an identifier for
+	// asynchronous app work. The platform may use this metadata to create
+	// a short-lived notification subscription for the caller.
+	AsyncResult *AsyncResultSpec `yaml:"async_result,omitempty" json:"async_result,omitempty"`
+}
+
+// AsyncResultSpec describes platform-managed notification behavior for
+// a tool that returns before its work is complete.
+type AsyncResultSpec struct {
+	IDField string           `yaml:"id_field,omitempty" json:"id_field,omitempty"`
+	Notify  *AsyncNotifySpec `yaml:"notify,omitempty" json:"notify,omitempty"`
+}
+
+// AsyncNotifySpec tells the platform which app events should wake the
+// caller when the async result changes state.
+type AsyncNotifySpec struct {
+	Target       string            `yaml:"target,omitempty" json:"target,omitempty"` // caller
+	Mode         string            `yaml:"mode,omitempty" json:"mode,omitempty"`     // once
+	Events       []string          `yaml:"events,omitempty" json:"events,omitempty"`
+	Match        map[string]string `yaml:"match,omitempty" json:"match,omitempty"`
+	ExpiresAfter string            `yaml:"expires_after,omitempty" json:"expires_after,omitempty"`
 }
 
 // PromptFragment files concatenate into instance directives at boot
