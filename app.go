@@ -91,18 +91,29 @@ type Worker struct {
 	Run      func(ctx context.Context, app *AppCtx) error
 }
 
-// EventHandler — subscription to a platform event topic. Platform pushes
+// EventHandler — subscription to a platform event. Platform pushes
 // events to /apps/<name>/events; framework dispatches to handlers.
 type EventHandler struct {
-	Topic   string // e.g. "instance.message", "connection.created"
+	Topic   string // e.g. "instance.message", "connection.created"; kept for compatibility
+	Event   string // preferred event name; falls back to Topic when empty
 	Handler func(ctx *AppCtx, event Event) error
 }
 
 type Event struct {
-	Topic      string         `json:"topic"`
-	InstanceID int64          `json:"instance_id,omitempty"`
-	ProjectID  string         `json:"project_id,omitempty"`
-	Data       map[string]any `json:"data,omitempty"`
+	Event           string         `json:"event,omitempty"`
+	Topic           string         `json:"topic,omitempty"` // compatibility alias for Event
+	SourceApp       string         `json:"source_app,omitempty"`
+	SourceInstallID int64          `json:"source_install_id,omitempty"`
+	InstanceID      int64          `json:"instance_id,omitempty"`
+	ProjectID       string         `json:"project_id,omitempty"`
+	Data            map[string]any `json:"data,omitempty"`
+}
+
+func (e Event) Name() string {
+	if e.Event != "" {
+		return e.Event
+	}
+	return e.Topic
 }
 
 // ChannelFactory builds an inbound/outbound channel adapter for one

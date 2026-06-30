@@ -209,6 +209,10 @@ type RequiredAppRef struct {
 	Version  string `yaml:"version,omitempty" json:"version,omitempty"` // semver constraint, ">=1.0.0" form; empty = any
 	Reason   string `yaml:"reason,omitempty" json:"reason,omitempty"`   // human-readable; surfaced in the dashboard
 	Optional bool   `yaml:"optional,omitempty" json:"optional,omitempty"`
+	// Events declares which events this app wants to receive from the
+	// dependency. The platform delivers matching AppBus emissions to
+	// this app's EventHandlers without a separate subscription table.
+	Events []string `yaml:"events,omitempty" json:"events,omitempty"`
 }
 
 // Provides describes the surfaces this app contributes back to the

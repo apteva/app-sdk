@@ -1,10 +1,12 @@
 package sdk
 
 import (
+	"bytes"
 	"context"
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log"
 	"net/http"
 	"os"
@@ -275,16 +277,27 @@ func mountFrameworkRoutes(mux *http.ServeMux, app App, ctx *AppCtx) {
 			http.Error(w, "invalid json", http.StatusBadRequest)
 			return
 		}
+		eventName := ev.Name()
+		if ev.Event == "" {
+			ev.Event = eventName
+		}
+		if ev.Topic == "" {
+			ev.Topic = eventName
+		}
 		evCtx := ctx
 		if ev.ProjectID != "" {
 			evCtx = ctx.WithProject(ev.ProjectID)
 		}
 		for _, h := range app.EventHandlers() {
-			if h.Topic != ev.Topic && h.Topic != "*" {
+			handlerEvent := h.Event
+			if handlerEvent == "" {
+				handlerEvent = h.Topic
+			}
+			if handlerEvent != eventName && handlerEvent != "*" {
 				continue
 			}
 			if err := h.Handler(evCtx, ev); err != nil {
-				evCtx.Logger().Warn("event handler error", "topic", ev.Topic, "err", err)
+				evCtx.Logger().Warn("event handler error", "event", eventName, "err", err)
 			}
 		}
 		w.WriteHeader(http.StatusNoContent)
@@ -623,7 +636,7 @@ func (h *mcpHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		// Encode as JSON so MCP clients can parse the result
 		// back into structured data. fmt.Sprint produces Go's
 		// map syntax which no client understands.
-		body, jerr := json.Marshal(res)
+		body, jerr := marshalJSONNoHTMLEscape(res)
 		if jerr != nil {
 			writeMCPErr(w, req.ID, -32000, "encode result: "+jerr.Error())
 			return
@@ -685,12 +698,26 @@ func (h *mcpHandler) toolSpec(name string) *MCPToolSpec {
 
 func writeMCP(w http.ResponseWriter, id any, result any) {
 	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(mcpResponse{JSONRPC: "2.0", ID: id, Result: result})
+	_ = encodeJSONNoHTMLEscape(w, mcpResponse{JSONRPC: "2.0", ID: id, Result: result})
 }
 
 func writeMCPErr(w http.ResponseWriter, id any, code int, msg string) {
 	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(mcpResponse{JSONRPC: "2.0", ID: id, Error: &mcpError{Code: code, Message: msg}})
+	_ = encodeJSONNoHTMLEscape(w, mcpResponse{JSONRPC: "2.0", ID: id, Error: &mcpError{Code: code, Message: msg}})
+}
+
+func marshalJSONNoHTMLEscape(v any) ([]byte, error) {
+	var buf bytes.Buffer
+	if err := encodeJSONNoHTMLEscape(&buf, v); err != nil {
+		return nil, err
+	}
+	return bytes.TrimSpace(buf.Bytes()), nil
+}
+
+func encodeJSONNoHTMLEscape(w io.Writer, v any) error {
+	enc := json.NewEncoder(w)
+	enc.SetEscapeHTML(false)
+	return enc.Encode(v)
 }
 
 // watchDBInode logs a critical warning whenever the DB file's inode
