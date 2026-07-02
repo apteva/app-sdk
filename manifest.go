@@ -190,6 +190,13 @@ type IntegrationDep struct {
 	// branching on app_slug. e.g. for image.generate, openai-api
 	// uses "generate_image" and replicate uses "predictions_create".
 	Tools map[string]string `yaml:"tools,omitempty" json:"tools,omitempty"`
+	// Events declares which AppBus events this app wants to receive
+	// from this app dependency. Only meaningful when Kind is "app".
+	// This is the role-based counterpart to requires.apps[].events:
+	// it lets apps that already need a selectable/bound app role also
+	// subscribe to that app's events without declaring the dependency
+	// twice in the install UI.
+	Events []string `yaml:"events,omitempty" json:"events,omitempty"`
 	// Hint is shown in the install picker when no compatible target
 	// exists yet, nudging the operator to install one.
 	Hint string `yaml:"hint,omitempty" json:"hint,omitempty"`
