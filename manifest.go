@@ -167,6 +167,11 @@ type IntegrationDep struct {
 	Role string `yaml:"role" json:"role"`
 	// Kind selects the resolution path. Default "integration".
 	Kind string `yaml:"kind,omitempty" json:"kind,omitempty"` // "integration" | "app"
+	// Mode controls how many targets can satisfy this role. Default
+	// "single" preserves the original shape where bindings[role] is a
+	// single id. "multiple" lets bindings[role] carry a selected id
+	// list plus an optional default id.
+	Mode string `yaml:"mode,omitempty" json:"mode,omitempty"` // "single" | "multiple"
 	// Required=true blocks the install until bound. False makes
 	// it an opt-in.
 	Required bool `yaml:"required,omitempty" json:"required,omitempty"`

@@ -299,6 +299,24 @@ func (c *AppCtx) WithProject(projectID string) *AppCtx {
 // cache TTL is short — sub-second — so the next call after a
 // rebind picks up the change without a sidecar restart.
 func (c *AppCtx) IntegrationFor(role string) *BoundIntegration {
+	bounds := c.IntegrationsFor(role)
+	if len(bounds) == 0 {
+		return nil
+	}
+	for _, b := range bounds {
+		if b != nil && b.IsDefault {
+			return b
+		}
+	}
+	return bounds[0]
+}
+
+// IntegrationsFor returns every binding for a role declared in the
+// manifest's requires.integrations. Single-binding roles return a
+// one-element slice. Multi-binding roles return the operator-selected
+// targets in binding order; the default target, when present, is marked
+// with IsDefault and is what IntegrationFor returns.
+func (c *AppCtx) IntegrationsFor(role string) []*BoundIntegration {
 	if c == nil || c.platform == nil {
 		return nil
 	}
@@ -320,6 +338,29 @@ func (c *AppCtx) IntegrationFor(role string) *BoundIntegration {
 	if !ok || raw == nil {
 		return nil
 	}
+	ids, defaultID := bindingIDs(raw)
+	if len(ids) == 0 {
+		return nil
+	}
+	out := make([]*BoundIntegration, 0, len(ids))
+	for _, id := range ids {
+		bound := c.boundIntegrationForID(dep, role, id)
+		if bound == nil {
+			continue
+		}
+		bound.IsDefault = id == defaultID
+		out = append(out, bound)
+	}
+	if len(out) > 0 && defaultID == 0 {
+		out[0].IsDefault = true
+	}
+	return out
+}
+
+func (c *AppCtx) boundIntegrationForID(dep *IntegrationDep, role string, id int64) *BoundIntegration {
+	if id <= 0 {
+		return nil
+	}
 	bound := &BoundIntegration{
 		Role: role,
 		Kind: dep.Kind,
@@ -327,41 +368,27 @@ func (c *AppCtx) IntegrationFor(role string) *BoundIntegration {
 	if bound.Kind == "" {
 		bound.Kind = "integration"
 	}
-	switch v := raw.(type) {
-	case float64:
-		if v <= 0 {
-			return nil
+	if bound.Kind == "app" {
+		bound.InstallID = id
+		// AppName resolution: best-effort GetInstance lookup.
+		// Falls through with empty AppName when the platform
+		// doesn't have a fast path; consumers fall back to the
+		// install id, which is what authorization gates on anyway.
+		if inst, err := c.platform.GetInstance(id); err == nil && inst != nil {
+			bound.AppName = inst.Name
 		}
-		if bound.Kind == "app" {
-			bound.InstallID = int64(v)
-			// AppName resolution: best-effort GetInstance lookup.
-			// Falls through with empty AppName when the platform
-			// doesn't have a fast path; consumers fall back to the
-			// install id, which is what authorization gates on
-			// anyway.
-			if inst, err := c.platform.GetInstance(int64(v)); err == nil && inst != nil {
-				bound.AppName = inst.Name
-			}
-			// kind=app deps usually call CallApp(appName) — and
-			// the bound app's display name is more useful than its
-			// numeric id for that. Most apps in practice have a
-			// stable known name (storage, media, etc.) and the
-			// caller passes the literal string anyway.
-		} else {
-			bound.ConnectionID = int64(v)
-			// Resolve the connection's app_slug so app code can do
-			// provider-specific normalization without a separate
-			// GetConnection round-trip. This is one /api/apps/callback/
-			// connections/:id call per IntegrationFor invocation;
-			// ToolFor uses it to map logical capabilities to upstream
-			// tool names. Best-effort — leave AppSlug empty on error
-			// and let app code fall back to its own defaults.
-			if conn, err := c.platform.GetConnection(int64(v)); err == nil && conn != nil {
-				bound.AppSlug = conn.AppSlug
-			}
+	} else {
+		bound.ConnectionID = id
+		// Resolve the connection's app_slug so app code can do
+		// provider-specific normalization without a separate
+		// GetConnection round-trip. This is one /api/apps/callback/
+		// connections/:id call per IntegrationFor invocation;
+		// ToolFor uses it to map logical capabilities to upstream
+		// tool names. Best-effort — leave AppSlug empty on error
+		// and let app code fall back to its own defaults.
+		if conn, err := c.platform.GetConnection(id); err == nil && conn != nil {
+			bound.AppSlug = conn.AppSlug
 		}
-	default:
-		return nil
 	}
 	// Build ToolFor closure that maps logical capability → upstream tool name
 	// per the manifest's tools map.
@@ -378,6 +405,62 @@ func (c *AppCtx) IntegrationFor(role string) *BoundIntegration {
 	return bound
 }
 
+func bindingIDs(raw any) ([]int64, int64) {
+	if id, ok := bindingInt64(raw); ok && id > 0 {
+		return []int64{id}, id
+	}
+	m, ok := raw.(map[string]any)
+	if !ok {
+		return nil, 0
+	}
+	ids := make([]int64, 0)
+	seen := map[int64]bool{}
+	switch v := m["ids"].(type) {
+	case []any:
+		for _, item := range v {
+			if id, ok := bindingInt64(item); ok && id > 0 && !seen[id] {
+				ids = append(ids, id)
+				seen[id] = true
+			}
+		}
+	case []int64:
+		for _, id := range v {
+			if id > 0 && !seen[id] {
+				ids = append(ids, id)
+				seen[id] = true
+			}
+		}
+	case []float64:
+		for _, id := range v {
+			n := int64(id)
+			if n > 0 && !seen[n] {
+				ids = append(ids, n)
+				seen[n] = true
+			}
+		}
+	}
+	defaultID := int64(0)
+	if id, ok := bindingInt64(m["default_id"]); ok && seen[id] {
+		defaultID = id
+	}
+	return ids, defaultID
+}
+
+func bindingInt64(v any) (int64, bool) {
+	switch n := v.(type) {
+	case int:
+		return int64(n), true
+	case int64:
+		return n, true
+	case float64:
+		return int64(n), n > 0
+	case json.Number:
+		i, err := n.Int64()
+		return i, err == nil
+	}
+	return 0, false
+}
+
 // BoundIntegration describes a role's currently-bound target. See
 // AppCtx.IntegrationFor.
 type BoundIntegration struct {
@@ -387,6 +470,7 @@ type BoundIntegration struct {
 	InstallID    int64  // when Kind=app
 	AppName      string // when Kind=app — resolved best-effort
 	AppSlug      string // when Kind=integration — fetched on demand from PlatformAPI.GetConnection
+	IsDefault    bool   // true when this is the default binding for a multi role
 	// ToolFor maps a logical capability ("image.generate") to the
 	// upstream tool name ("generate_image" for openai-api). Falls
 	// back to the capability string when no mapping is declared.
