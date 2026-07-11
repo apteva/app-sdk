@@ -753,18 +753,6 @@ func watchDBInode(path string, logger Logger) {
 	}
 }
 
-func statInode(path string) (uint64, bool) {
-	st, err := os.Stat(path)
-	if err != nil {
-		return 0, false
-	}
-	sys, ok := st.Sys().(*syscall.Stat_t)
-	if !ok {
-		return 0, false
-	}
-	return uint64(sys.Ino), true
-}
-
 // --- DB open + migrations ---------------------------------------------------
 
 func openAppDB(cfg *DBConfig, logger Logger) (*sql.DB, error) {
