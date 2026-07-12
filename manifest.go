@@ -21,6 +21,11 @@ import (
 // Bumped only on breaking changes; additive fields don't bump it.
 const SchemaCurrent = "apteva-app/v1"
 
+const (
+	NativeSurfaceSchemaCurrent    = "apteva-native-surface/v1"
+	UISurfaceSlotMobileProjectApp = "mobile.project_app"
+)
+
 // Manifest is the single source of truth for an app — identity,
 // requirements, what it provides, and how the platform should host it.
 // Loaded from apteva.yaml in the app's repo root.
@@ -235,6 +240,7 @@ type Provides struct {
 	PromptFragments []PromptFragment `yaml:"prompt_fragments" json:"prompt_fragments"`
 	UIPanels        []UIPanel        `yaml:"ui_panels" json:"ui_panels"`
 	UIComponents    []UIComponent    `yaml:"ui_components,omitempty" json:"ui_components,omitempty"`
+	UISurfaces      []UISurface      `yaml:"ui_surfaces,omitempty" json:"ui_surfaces,omitempty"`
 	UIApp           *UIApp           `yaml:"ui_app,omitempty" json:"ui_app,omitempty"`
 	Channels        []ChannelSpec    `yaml:"channels" json:"channels"`
 	Workers         []WorkerSpec     `yaml:"workers" json:"workers"`
@@ -399,6 +405,28 @@ type UIComponent struct {
 	// will render a skeleton or tombstone — also informative, just
 	// less polished.
 	PreviewProps map[string]any `yaml:"preview_props,omitempty" json:"preview_props,omitempty"`
+}
+
+// UISurface advertises a portable, declarative native UI document served by
+// the app sidecar. Unlike UIPanel/UIComponent, a surface contains no remotely
+// executable code: iOS and Android download Entry, validate Schema, and render
+// the document using their own native component libraries.
+//
+// Version 1 intentionally exposes one placement only:
+//
+//	mobile.project_app — an app experience opened from a project's Apps tab
+//
+// Entry is an app-relative static path under /ui/. The app-sdk already serves
+// that directory, while the platform proxy supplies authentication and project
+// context. Surface documents must never contain credentials or absolute API
+// origins; their request paths are resolved inside the declaring app.
+type UISurface struct {
+	ID     string   `yaml:"id" json:"id"`         // lowercase slug, scoped under the app
+	Label  string   `yaml:"label" json:"label"`   // native navigation/list label
+	Icon   string   `yaml:"icon" json:"icon"`     // semantic icon name, mapped by each client
+	Schema string   `yaml:"schema" json:"schema"` // apteva-native-surface/v1
+	Entry  string   `yaml:"entry" json:"entry"`   // /ui/surfaces/<name>.json
+	Slots  []string `yaml:"slots" json:"slots"`   // currently mobile.project_app
 }
 
 // RouteSpec — the app sidecar serves these prefixes; platform reverse-
@@ -956,7 +984,63 @@ func ValidateManifest(m *Manifest) error {
 	if err := validateProvidedPermissions(&m.Provides); err != nil {
 		return err
 	}
+	if err := validateUISurfaces(m.Provides.UISurfaces); err != nil {
+		return err
+	}
 	return nil
+}
+
+func validateUISurfaces(surfaces []UISurface) error {
+	seen := make(map[string]bool, len(surfaces))
+	for i, surface := range surfaces {
+		prefix := fmt.Sprintf("provides.ui_surfaces[%d]", i)
+		if !isSlug(surface.ID) {
+			return fmt.Errorf("%s.id must be a lowercase slug (a-z0-9-)", prefix)
+		}
+		if seen[surface.ID] {
+			return fmt.Errorf("provides.ui_surfaces: duplicate id %q", surface.ID)
+		}
+		seen[surface.ID] = true
+		if strings.TrimSpace(surface.Label) == "" {
+			return fmt.Errorf("%s.label required", prefix)
+		}
+		if strings.TrimSpace(surface.Icon) == "" {
+			return fmt.Errorf("%s.icon required", prefix)
+		}
+		if surface.Schema != NativeSurfaceSchemaCurrent {
+			return fmt.Errorf("%s.schema %q unsupported (expected %s)", prefix, surface.Schema, NativeSurfaceSchemaCurrent)
+		}
+		if !strings.HasPrefix(surface.Entry, "/ui/") ||
+			!strings.HasSuffix(surface.Entry, ".json") ||
+			strings.Contains(surface.Entry, "?") ||
+			strings.Contains(surface.Entry, "#") ||
+			hasPathTraversal(surface.Entry) {
+			return fmt.Errorf("%s.entry must be a traversal-free JSON path under /ui/", prefix)
+		}
+		if len(surface.Slots) == 0 {
+			return fmt.Errorf("%s.slots requires at least one slot", prefix)
+		}
+		slotSeen := map[string]bool{}
+		for _, slot := range surface.Slots {
+			if slot != UISurfaceSlotMobileProjectApp {
+				return fmt.Errorf("%s.slots contains unsupported slot %q", prefix, slot)
+			}
+			if slotSeen[slot] {
+				return fmt.Errorf("%s.slots contains duplicate slot %q", prefix, slot)
+			}
+			slotSeen[slot] = true
+		}
+	}
+	return nil
+}
+
+func hasPathTraversal(value string) bool {
+	for _, segment := range strings.Split(value, "/") {
+		if segment == "." || segment == ".." {
+			return true
+		}
+	}
+	return false
 }
 
 // validateProvidedPermissions checks that the permission/resource graph
