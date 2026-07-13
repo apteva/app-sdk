@@ -796,6 +796,32 @@ func (c *httpPlatformClient) postWith(client *http.Client, path string, body any
 	return json.NewDecoder(resp.Body).Decode(out)
 }
 
+func (c *httpPlatformClient) put(path string, body any, out any) error {
+	var br io.Reader
+	if body != nil {
+		buf, err := json.Marshal(body)
+		if err != nil {
+			return err
+		}
+		br = bytes.NewReader(buf)
+	}
+	req, _ := http.NewRequest(http.MethodPut, c.baseURL+path, br)
+	req.Header.Set("Content-Type", "application/json")
+	c.addAuth(req)
+	resp, err := c.client.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode/100 != 2 {
+		return c.platformErr(resp)
+	}
+	if out == nil {
+		return nil
+	}
+	return json.NewDecoder(resp.Body).Decode(out)
+}
+
 func (c *httpPlatformClient) deleteWithBody(path string, body any, out any) error {
 	var br io.Reader
 	if body != nil {

@@ -838,6 +838,22 @@ const (
 	// environment agents, and destroy environments. Treat this as a
 	// control-plane permission; most apps should not need it.
 	PermEnvironmentsManage Permission = "platform.environments.manage"
+	// PermRuntimesRead lets an app inspect isolated runtimes that the same app
+	// install created. Runtime ownership is enforced independently of project
+	// access so one app cannot enumerate another app's test workloads.
+	PermRuntimesRead Permission = "platform.runtimes.read"
+	// PermRuntimesCall lets an app call runtime app tools, drive runtime agents,
+	// and inspect their trajectories and telemetry.
+	PermRuntimesCall Permission = "platform.runtimes.call"
+	// PermRuntimesManage lets an app create/destroy runtimes, spawn/stop agents,
+	// attach private MCP endpoints, and capture runtime artifacts.
+	PermRuntimesManage Permission = "platform.runtimes.manage"
+	// PermRuntimeCatalogRead exposes project-scoped installed app, tool-schema,
+	// connection, and agent discovery for runtime builders.
+	PermRuntimeCatalogRead Permission = "platform.runtime_catalog.read"
+	// PermAgentsDirectiveWrite permits a sidecar to update an agent directive
+	// with an optimistic ETag check and a generic platform audit record.
+	PermAgentsDirectiveWrite Permission = "platform.agents.directive.write"
 	// PermIngressRead lets an app inspect public hostnames it owns.
 	PermIngressRead Permission = "platform.ingress.read"
 	// PermIngressWrite lets an app expose and unexpose hostnames
@@ -867,6 +883,8 @@ func AllPermissions() []Permission {
 		PermConnectionsReadCredentials,
 		PermRealtimeSpawn,
 		PermEnvironmentsRead, PermEnvironmentsCall, PermEnvironmentsManage,
+		PermRuntimesRead, PermRuntimesCall, PermRuntimesManage,
+		PermRuntimeCatalogRead, PermAgentsDirectiveWrite,
 		PermIngressRead, PermIngressWrite,
 		PermDNSRead, PermDNSWrite,
 	}

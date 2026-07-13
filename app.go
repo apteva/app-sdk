@@ -176,6 +176,26 @@ func (c *AppCtx) AppDB() *sql.DB { return c.db }
 // side against the manifest's declared permissions.
 func (c *AppCtx) PlatformAPI() PlatformClient { return c.platform }
 
+// RuntimeAPI returns the optional isolated-runtime control client. It is kept
+// separate from PlatformClient because runtime orchestration is a privileged,
+// specialist surface and adding it to PlatformClient would break every app
+// test stub whenever the runtime contract grows.
+//
+// The default HTTP-backed AppCtx always provides this client. Tests or custom
+// contexts backed by a PlatformClient stub may return nil.
+func (c *AppCtx) RuntimeAPI() RuntimeClient {
+	if c == nil || c.platform == nil {
+		return nil
+	}
+	if scoped, ok := c.platform.(*projectScopedClient); ok {
+		if _, available := scoped.inner.(RuntimeClient); !available {
+			return nil
+		}
+	}
+	runtimeAPI, _ := c.platform.(RuntimeClient)
+	return runtimeAPI
+}
+
 // PlatformInfo is the shortcut for c.PlatformAPI().PlatformInfo() —
 // the same convenience pattern as ctx.GetInstance / WhoAmI. Returns
 // the current platform-level facts (public_url, version) with the
