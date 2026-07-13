@@ -78,3 +78,41 @@ func TestRuntimeCatalogDiscoveryPaths(t *testing.T) {
 		}
 	}
 }
+
+func TestRuntimeAgentSpawnAndWaitContracts(t *testing.T) {
+	var spawn RuntimeAgentSpawnRequest
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/api/apps/callback/runtimes/rt-1/agents":
+			if err := json.NewDecoder(r.Body).Decode(&spawn); err != nil {
+				t.Fatal(err)
+			}
+			_ = json.NewEncoder(w).Encode(RuntimeAgent{ID: 9, Alias: "main", Provider: spawn.Provider, Model: spawn.Model})
+		case "/api/apps/callback/runtimes/rt-1/agents/main/wait":
+			var req RuntimeAgentWaitRequest
+			if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+				t.Fatal(err)
+			}
+			_ = json.NewEncoder(w).Encode(RuntimeAgentExecution{Status: "completed", Reason: "idle", Turns: req.MaxTurns, Metrics: RuntimeAgentMetrics{Model: "claude-test"}})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+	c := &httpPlatformClient{baseURL: server.URL, token: "token", client: server.Client(), slowClient: server.Client()}
+	agent, err := c.SpawnRuntimeAgent("rt-1", RuntimeAgentSpawnRequest{SourceAgentID: 3, Provider: "anthropic", Model: "claude-test"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if agent.Provider != "anthropic" || spawn.Model != "claude-test" {
+		t.Fatalf("agent=%#v spawn=%#v", agent, spawn)
+	}
+	execution, err := c.WaitRuntimeAgent("rt-1", "main", RuntimeAgentWaitRequest{MaxTurns: 7})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if execution.Status != "completed" || execution.Turns != 7 || execution.Metrics.Model != "claude-test" {
+		t.Fatalf("execution=%#v", execution)
+	}
+}

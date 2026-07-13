@@ -30,6 +30,7 @@ type RuntimeClient interface {
 	StopRuntimeAgent(runtimeID, agentOrAlias string) error
 	SendRuntimeAgentEvent(runtimeID, agentOrAlias string, req RuntimeAgentEventRequest) error
 	ControlRuntimeAgent(runtimeID, agentOrAlias, action string) error
+	WaitRuntimeAgent(runtimeID, agentOrAlias string, req RuntimeAgentWaitRequest) (*RuntimeAgentExecution, error)
 	ListRuntimeAgentThreads(runtimeID, agentOrAlias string) (json.RawMessage, error)
 	GetRuntimeAgentThread(runtimeID, agentOrAlias, threadID string) (json.RawMessage, error)
 	ListRuntimeAgentTelemetry(runtimeID, agentOrAlias string, since time.Time, limit int) ([]RuntimeTelemetryEvent, error)
@@ -124,6 +125,8 @@ type RuntimeAgentSpawnRequest struct {
 	Directive     string             `json:"directive,omitempty"`
 	Alias         string             `json:"alias,omitempty"`
 	StartPaused   bool               `json:"start_paused,omitempty"`
+	Provider      string             `json:"provider,omitempty"`
+	Model         string             `json:"model,omitempty"`
 }
 
 type RuntimeAgent struct {
@@ -132,12 +135,65 @@ type RuntimeAgent struct {
 	SourceName    string    `json:"source_name,omitempty"`
 	Alias         string    `json:"alias"`
 	Status        string    `json:"status"`
+	Provider      string    `json:"provider,omitempty"`
+	Model         string    `json:"model,omitempty"`
 	CreatedAt     time.Time `json:"created_at"`
 }
 
 type RuntimeAgentEventRequest struct {
 	Message  string `json:"message"`
 	ThreadID string `json:"thread_id,omitempty"`
+}
+
+// RuntimeAgentWaitRequest controls completion detection for one execution.
+// The runtime remains alive after this call so callers can inspect app state.
+type RuntimeAgentWaitRequest struct {
+	ThreadID            string `json:"thread_id,omitempty"`
+	TimeoutSeconds      int    `json:"timeout_seconds,omitempty"`
+	IdleSeconds         int    `json:"idle_seconds,omitempty"`
+	PostToolIdleSeconds int    `json:"post_tool_idle_seconds,omitempty"`
+	MaxTurns            int    `json:"max_turns,omitempty"`
+	RequireActivity     bool   `json:"require_activity,omitempty"`
+}
+
+type RuntimeAgentExecution struct {
+	Status     string              `json:"status"`
+	Reason     string              `json:"reason,omitempty"`
+	ThreadID   string              `json:"thread_id"`
+	Turns      int                 `json:"turns"`
+	StartedAt  time.Time           `json:"started_at"`
+	FinishedAt time.Time           `json:"finished_at"`
+	Trace      []RuntimeTraceEvent `json:"trace"`
+	Metrics    RuntimeAgentMetrics `json:"metrics"`
+}
+
+type RuntimeTraceEvent struct {
+	Index    int              `json:"index"`
+	ThreadID string           `json:"thread_id"`
+	Role     string           `json:"role"`
+	Content  string           `json:"content,omitempty"`
+	ToolCall *RuntimeToolCall `json:"tool_call,omitempty"`
+}
+
+type RuntimeToolCall struct {
+	ID      string          `json:"id,omitempty"`
+	Name    string          `json:"name"`
+	Input   json.RawMessage `json:"input,omitempty"`
+	Output  string          `json:"output,omitempty"`
+	IsError bool            `json:"is_error,omitempty"`
+}
+
+type RuntimeAgentMetrics struct {
+	Provider      string  `json:"provider,omitempty"`
+	Model         string  `json:"model,omitempty"`
+	LLMCalls      int     `json:"llm_calls"`
+	TokensIn      int     `json:"tokens_in"`
+	TokensOut     int     `json:"tokens_out"`
+	TokensCached  int     `json:"tokens_cached"`
+	CostUSD       float64 `json:"cost_usd"`
+	LLMDurationMS int     `json:"llm_duration_ms"`
+	ToolCalls     int     `json:"tool_calls"`
+	Errors        int     `json:"errors"`
 }
 
 type RuntimeTelemetryEvent struct {
@@ -356,6 +412,14 @@ func (c *httpPlatformClient) ControlRuntimeAgent(runtimeID, agentOrAlias, action
 	return c.post(runtimeAgentPath(runtimeID, agentOrAlias)+"/control", map[string]string{"action": action}, nil)
 }
 
+func (c *httpPlatformClient) WaitRuntimeAgent(runtimeID, agentOrAlias string, req RuntimeAgentWaitRequest) (*RuntimeAgentExecution, error) {
+	var out RuntimeAgentExecution
+	if err := c.postWith(c.slowClient, runtimeAgentPath(runtimeID, agentOrAlias)+"/wait", req, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
 func (c *httpPlatformClient) ListRuntimeAgentThreads(runtimeID, agentOrAlias string) (json.RawMessage, error) {
 	return c.getRaw(runtimeAgentPath(runtimeID, agentOrAlias) + "/threads")
 }
@@ -509,6 +573,9 @@ func (p *projectScopedClient) SendRuntimeAgentEvent(r, a string, req RuntimeAgen
 }
 func (p *projectScopedClient) ControlRuntimeAgent(r, a, action string) error {
 	return p.runtime().ControlRuntimeAgent(r, a, action)
+}
+func (p *projectScopedClient) WaitRuntimeAgent(r, a string, req RuntimeAgentWaitRequest) (*RuntimeAgentExecution, error) {
+	return p.runtime().WaitRuntimeAgent(r, a, req)
 }
 func (p *projectScopedClient) ListRuntimeAgentThreads(r, a string) (json.RawMessage, error) {
 	return p.runtime().ListRuntimeAgentThreads(r, a)
