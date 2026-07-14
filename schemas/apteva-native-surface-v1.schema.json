@@ -1,0 +1,335 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.apteva.com/apteva-native-surface-v1.schema.json",
+  "title": "Apteva Native Surface v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "id", "version", "title", "icon", "context", "sections"],
+  "properties": {
+    "schema": {"const": "apteva-native-surface/v1"},
+    "id": {"$ref": "#/$defs/slug"},
+    "version": {"type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+(?:-[0-9A-Za-z.-]+)?(?:\\+[0-9A-Za-z.-]+)?$"},
+    "title": {"$ref": "#/$defs/nonEmpty"},
+    "description": {"type": "string"},
+    "icon": {"$ref": "#/$defs/nonEmpty"},
+    "context": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["scope"],
+      "properties": {"scope": {"const": "project"}}
+    },
+    "state": {"type": "object", "additionalProperties": {"$ref": "#/$defs/state"}},
+    "data_sources": {"type": "object", "additionalProperties": {"$ref": "#/$defs/dataSource"}},
+    "primary_actions": {"$ref": "#/$defs/stringList"},
+    "sections": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/section"}},
+    "destinations": {"type": "object", "additionalProperties": {"$ref": "#/$defs/destination"}},
+    "actions": {"type": "object", "additionalProperties": {"$ref": "#/$defs/action"}},
+    "resources": {"type": "object", "additionalProperties": {"$ref": "#/$defs/resource"}}
+  },
+  "$defs": {
+    "slug": {"type": "string", "pattern": "^[a-z][a-z0-9-]*$"},
+    "identifier": {"type": "string", "pattern": "^[a-z][a-z0-9_-]*$"},
+    "nonEmpty": {"type": "string", "minLength": 1},
+    "stringList": {"type": "array", "uniqueItems": true, "items": {"type": "string"}},
+    "selector": {"type": "string", "pattern": "^\\$(?:\\.[A-Za-z_][A-Za-z0-9_]*)*$"},
+    "path": {"type": "string", "pattern": "^/[^/?#]*(?:/[^/?#]*)*$"},
+    "state": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type"],
+      "properties": {
+        "type": {"enum": ["string", "boolean", "integer", "number", "string_list"]},
+        "default": {},
+        "persistence": {"enum": ["session", "project"]}
+      }
+    },
+    "request": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["method", "path"],
+      "properties": {
+        "method": {"enum": ["GET", "POST", "PATCH", "DELETE"]},
+        "path": {"$ref": "#/$defs/path"},
+        "encoding": {"enum": ["json", "multipart"]},
+        "query": {"type": "object"},
+        "body": {"type": "object"}
+      }
+    },
+    "response": {
+      "type": "object",
+      "additionalProperties": false,
+      "anyOf": [{"required": ["items"]}, {"required": ["item"]}, {"required": ["result"]}],
+      "properties": {
+        "items": {"$ref": "#/$defs/selector"},
+        "item": {"$ref": "#/$defs/selector"},
+        "id": {"$ref": "#/$defs/selector"},
+        "result": {"$ref": "#/$defs/selector"},
+        "next_cursor": {"$ref": "#/$defs/selector"}
+      }
+    },
+    "pagination": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type"],
+      "properties": {
+        "type": {"enum": ["none", "cursor", "page"]},
+        "request_key": {"type": "string"},
+        "response_path": {"$ref": "#/$defs/selector"},
+        "page_size": {"type": "integer", "minimum": 1, "maximum": 200}
+      }
+    },
+    "refresh": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "on_appear": {"type": "boolean"},
+        "pull_to_refresh": {"type": "boolean"}
+      }
+    },
+    "dataSource": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["request", "response"],
+      "properties": {
+        "request": {"$ref": "#/$defs/request"},
+        "response": {"$ref": "#/$defs/response"},
+        "pagination": {"$ref": "#/$defs/pagination"},
+        "refresh": {"$ref": "#/$defs/refresh"}
+      }
+    },
+    "semanticState": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "title": {"type": "string"},
+        "description": {"type": "string"},
+        "icon": {"type": "string"},
+        "retry": {"type": "boolean"}
+      }
+    },
+    "value": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["value"],
+      "properties": {
+        "value": {"type": "string"},
+        "label": {"type": "string"},
+        "format": {"enum": ["file_size", "relative_time", "date_time", "file_icon", "tags", "number", "currency"]},
+        "fallback": {"type": "string"}
+      }
+    },
+    "field": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["label", "value"],
+      "properties": {
+        "id": {"$ref": "#/$defs/identifier"},
+        "label": {"$ref": "#/$defs/nonEmpty"},
+        "value": {"type": "string"},
+        "format": {"enum": ["file_size", "relative_time", "date_time", "file_icon", "tags", "number", "currency"]},
+        "hidden": {"type": "boolean"}
+      }
+    },
+    "preview": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path"],
+      "properties": {
+        "path": {"$ref": "#/$defs/path"},
+        "name": {"type": "string"},
+        "content_type": {"type": "string"},
+        "share_action": {"$ref": "#/$defs/identifier"},
+        "delete_action": {"$ref": "#/$defs/identifier"}
+      }
+    },
+    "search": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["state"],
+      "properties": {
+        "state": {"$ref": "#/$defs/identifier"},
+        "placeholder": {"type": "string"},
+        "query_key": {"type": "string"}
+      }
+    },
+    "option": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["label", "value"],
+      "properties": {
+        "label": {"type": "string"},
+        "value": {},
+        "match": {"enum": ["exact", "prefix"]}
+      }
+    },
+    "optionMapping": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["value", "label"],
+      "properties": {"value": {"$ref": "#/$defs/selector"}, "label": {"$ref": "#/$defs/selector"}}
+    },
+    "filter": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "type", "state", "label"],
+      "properties": {
+        "id": {"$ref": "#/$defs/identifier"},
+        "type": {"enum": ["choice", "resource_picker", "toggle"]},
+        "state": {"$ref": "#/$defs/identifier"},
+        "label": {"$ref": "#/$defs/nonEmpty"},
+        "query_key": {"type": "string"},
+        "options": {"type": "array", "items": {"$ref": "#/$defs/option"}},
+        "source": {"$ref": "#/$defs/identifier"},
+        "mapping": {"$ref": "#/$defs/optionMapping"}
+      }
+    },
+    "itemMapping": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "title"],
+      "properties": {
+        "id": {"type": "string"},
+        "title": {"type": "string"},
+        "subtitle": {"type": "array", "items": {"$ref": "#/$defs/value"}},
+        "icon": {"$ref": "#/$defs/value"},
+        "badge": {"$ref": "#/$defs/value"},
+        "preview": {"$ref": "#/$defs/preview"},
+        "destination": {"$ref": "#/$defs/identifier"},
+        "actions": {"$ref": "#/$defs/stringList"}
+      }
+    },
+    "metric": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "label", "value"],
+      "properties": {
+        "id": {"$ref": "#/$defs/identifier"},
+        "label": {"type": "string"},
+        "value": {"type": "string"},
+        "hint": {"type": "string"},
+        "icon": {"type": "string"},
+        "format": {"enum": ["file_size", "relative_time", "date_time", "file_icon", "tags", "number", "currency"]}
+      }
+    },
+    "timeline": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "title"],
+      "properties": {
+        "id": {"type": "string"},
+        "title": {"type": "string"},
+        "detail": {"type": "string"},
+        "time": {"type": "string"},
+        "icon": {"type": "string"}
+      }
+    },
+    "section": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "kind"],
+      "properties": {
+        "id": {"$ref": "#/$defs/identifier"},
+        "kind": {"enum": ["collection", "metrics", "timeline", "properties", "file_preview", "text"]},
+        "title": {"type": "string"},
+        "description": {"type": "string"},
+        "source": {"$ref": "#/$defs/identifier"},
+        "presentation": {"enum": ["list", "grid", "adaptive"]},
+        "search": {"$ref": "#/$defs/search"},
+        "filters": {"type": "array", "items": {"$ref": "#/$defs/filter"}},
+        "item": {"$ref": "#/$defs/itemMapping"},
+        "metrics": {"type": "array", "items": {"$ref": "#/$defs/metric"}},
+        "timeline": {"$ref": "#/$defs/timeline"},
+        "fields": {"type": "array", "items": {"$ref": "#/$defs/field"}},
+        "preview": {"$ref": "#/$defs/preview"},
+        "actions": {"$ref": "#/$defs/stringList"},
+        "empty": {"$ref": "#/$defs/semanticState"},
+        "loading": {"$ref": "#/$defs/semanticState"},
+        "error": {"$ref": "#/$defs/semanticState"}
+      }
+    },
+    "destination": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "title", "sections"],
+      "properties": {
+        "type": {"const": "detail"},
+        "title": {"$ref": "#/$defs/nonEmpty"},
+        "source": {"$ref": "#/$defs/identifier"},
+        "sections": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/section"}},
+        "actions": {"$ref": "#/$defs/stringList"}
+      }
+    },
+    "input": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "type"],
+      "properties": {
+        "name": {"$ref": "#/$defs/identifier"},
+        "type": {"enum": ["string", "multiline", "password", "url", "integer", "number", "boolean", "choice", "string_list", "file", "resource"]},
+        "label": {"type": "string"},
+        "placeholder": {"type": "string"},
+        "required": {"type": "boolean"},
+        "default": {},
+        "options": {"type": "array", "items": {"$ref": "#/$defs/option"}},
+        "resource": {"$ref": "#/$defs/identifier"}
+      }
+    },
+    "confirmation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["title"],
+      "properties": {
+        "title": {"$ref": "#/$defs/nonEmpty"},
+        "message": {"type": "string"},
+        "confirm_label": {"type": "string"}
+      }
+    },
+    "success": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "refresh": {"$ref": "#/$defs/stringList"},
+        "dismiss": {"type": "boolean"},
+        "toast": {"type": "string"}
+      }
+    },
+    "action": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "label", "request"],
+      "properties": {
+        "type": {"enum": ["request", "form", "file_upload", "open_url", "copy_result", "share_result", "confirm"]},
+        "label": {"$ref": "#/$defs/nonEmpty"},
+        "icon": {"type": "string"},
+        "placements": {"type": "array", "uniqueItems": true, "items": {"enum": ["primary", "section", "item", "detail"]}},
+        "destructive": {"type": "boolean"},
+        "request": {"$ref": "#/$defs/request"},
+        "fields": {"type": "array", "items": {"$ref": "#/$defs/input"}},
+        "confirmation": {"$ref": "#/$defs/confirmation"},
+        "result": {"$ref": "#/$defs/selector"},
+        "success": {"$ref": "#/$defs/success"}
+      }
+    },
+    "resourceMapping": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "label"],
+      "properties": {
+        "id": {"$ref": "#/$defs/selector"},
+        "label": {"$ref": "#/$defs/selector"},
+        "parent": {"$ref": "#/$defs/selector"}
+      }
+    },
+    "resource": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "label", "source", "mapping"],
+      "properties": {
+        "type": {"enum": ["tree", "list"]},
+        "label": {"$ref": "#/$defs/nonEmpty"},
+        "source": {"$ref": "#/$defs/identifier"},
+        "mapping": {"$ref": "#/$defs/resourceMapping"}
+      }
+    }
+  }
+}

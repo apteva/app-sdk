@@ -61,6 +61,7 @@ Set the relevant block in `apteva.yaml` (see `manifest.go` for the full schema):
 - `http_routes` — proxied at `/apps/<name>/<prefix>`
 - `prompt_fragments` — concatenated into instance directives
 - `ui_panels` — UMD bundle into Apteva's dashboard slot
+- `ui_surfaces` — code-free, declarative native UI for iOS and Android
 - `ui_pages` — iframe-mounted top-level nav entry
 - `ui_app` — own subdomain via Traefik (white-label)
 - `channels` — inbound + outbound message adapters
@@ -68,6 +69,46 @@ Set the relevant block in `apteva.yaml` (see `manifest.go` for the full schema):
 
 Anything you don't declare — leave the field out or return `nil` from
 the matching `App` method.
+
+### Native mobile surfaces
+
+An app advertises each native surface in `apteva.yaml`:
+
+```yaml
+provides:
+  ui_surfaces:
+    - id: files
+      label: Files
+      icon: folder
+      schema: apteva-native-surface/v1
+      entry: /ui/surfaces/files.json
+      slots: [mobile.project_app]
+```
+
+`entry` is served from the app's existing `ui/` directory. The document is
+strict JSON conforming to
+[`schemas/apteva-native-surface-v1.schema.json`](schemas/apteva-native-surface-v1.schema.json).
+Use `ParseNativeSurface` while developing or testing an app; clients validate
+the same contract after downloading it.
+See [`NATIVE_SURFACES.md`](NATIVE_SURFACES.md) for the complete host and app
+contract. The JSON Schema is normative; the Go validator adds cross-reference
+and security rules.
+
+The v1 security boundary is deliberate:
+
+- Surface documents contain no JavaScript, HTML, arbitrary expressions,
+  credentials, headers, colors, fonts, or platform-specific symbols.
+- API paths are relative to the declaring app. Absolute origins and path
+  traversal are rejected.
+- Apps do not declare `project_id`; the native host adds the authenticated
+  project context to every request.
+- Response mappings use only simple JSON selectors such as `$.files` and
+  `$.id`. Bindings are limited to `$context`, `$state`, `$item`, `$input`, and
+  `$result`.
+- Documents are limited to 256 KiB and unknown fields fail closed.
+
+Unsupported surface schema versions should be shown by clients as requiring an
+app update. They must not be rendered speculatively.
 
 ## Talking back to the platform
 

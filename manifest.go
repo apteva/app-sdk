@@ -10,6 +10,7 @@ package sdk
 import (
 	"errors"
 	"fmt"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -1053,6 +1054,19 @@ func validateUISurfaces(surfaces []UISurface) error {
 }
 
 func hasPathTraversal(value string) bool {
+	if strings.Contains(value, "\\") {
+		return true
+	}
+	for range 3 {
+		decoded, err := url.PathUnescape(value)
+		if err != nil {
+			return true
+		}
+		if decoded == value {
+			break
+		}
+		value = decoded
+	}
 	for _, segment := range strings.Split(value, "/") {
 		if segment == "." || segment == ".." {
 			return true
