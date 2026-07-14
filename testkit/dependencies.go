@@ -27,7 +27,10 @@ package testkit
 // die together with the main sidecar.
 
 import (
+	"bytes"
+	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"net/http/httputil"
@@ -95,6 +98,11 @@ func spawnDependencies(t *testing.T, parentProjectID string, deps []DependencySp
 		// path segment after — proxy still wants to forward to
 		// the dep's "/" so listings without a path work.
 		mux.Handle("/api/apps/"+l.spec.Name, newDepProxy(t, l.sidecar, prefix))
+		// Modern SDK clients route inter-app MCP calls through the
+		// platform callback surface rather than calling /api/apps/<name>
+		// directly. Mirror the production callback adapter so integration
+		// tests exercise the same CallApp / CallAppResult wire shape.
+		mux.Handle("/api/apps/callback/apps/"+l.spec.Name+"/call", newDepCallHandler(l.sidecar))
 	}
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "testkit gateway: no dep registered for "+r.URL.Path, http.StatusNotFound)
@@ -103,6 +111,68 @@ func spawnDependencies(t *testing.T, parentProjectID string, deps []DependencySp
 	gw := httptest.NewServer(mux)
 	t.Cleanup(gw.Close)
 	return gw.URL
+}
+
+// newDepCallHandler mirrors apteva-server's
+// POST /api/apps/callback/apps/:name/call adapter. It accepts the SDK's
+// {tool,input} body, turns it into a tools/call JSON-RPC request, and
+// returns the dependency sidecar's raw MCP envelope unchanged.
+func newDepCallHandler(sc *Sidecar) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, "POST only", http.StatusMethodNotAllowed)
+			return
+		}
+		var body struct {
+			Tool  string         `json:"tool"`
+			Input map[string]any `json:"input"`
+		}
+		if err := json.NewDecoder(io.LimitReader(r.Body, 50<<20)).Decode(&body); err != nil {
+			http.Error(w, "invalid json: "+err.Error(), http.StatusBadRequest)
+			return
+		}
+		if body.Tool == "" {
+			http.Error(w, "tool required", http.StatusBadRequest)
+			return
+		}
+		if body.Input == nil {
+			body.Input = map[string]any{}
+		}
+		rpcBody, err := json.Marshal(map[string]any{
+			"jsonrpc": "2.0",
+			"id":      1,
+			"method":  "tools/call",
+			"params": map[string]any{
+				"name":      body.Tool,
+				"arguments": body.Input,
+			},
+		})
+		if err != nil {
+			http.Error(w, "encode rpc: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
+		req, err := http.NewRequestWithContext(r.Context(), http.MethodPost, sc.URL()+"/mcp", bytes.NewReader(rpcBody))
+		if err != nil {
+			http.Error(w, "build rpc: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Authorization", "Bearer "+sc.Token())
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			http.Error(w, "dependency unreachable: "+err.Error(), http.StatusBadGateway)
+			return
+		}
+		defer resp.Body.Close()
+		responseBody, err := io.ReadAll(io.LimitReader(resp.Body, 16<<20))
+		if err != nil {
+			http.Error(w, "read dependency response: "+err.Error(), http.StatusBadGateway)
+			return
+		}
+		w.Header().Set("Content-Type", resp.Header.Get("Content-Type"))
+		w.WriteHeader(resp.StatusCode)
+		_, _ = w.Write(responseBody)
+	})
 }
 
 // newDepProxy returns a reverse proxy that forwards to a dependency
