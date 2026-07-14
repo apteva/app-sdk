@@ -8,7 +8,7 @@ package testkit
 //
 //	   t            ┌──────────────┐         ┌──────────────────┐
 //	────┼──────────►│ main sidecar │ ──HTTP──┤ in-test gateway  │
-//	    │  spawn    │  (e.g. media)│         │  /api/apps/<x>/* │
+//	    │  spawn    │  (e.g. media)│         │  bound app proxy │
 //	    │           └──────────────┘         └──────────────────┘
 //	    │                                          │   │
 //	    │                                          │   └──► storage sidecar
@@ -18,7 +18,8 @@ package testkit
 //
 // The gateway is a single httptest.Server. For each declared
 // dependency it owns a httputil.ReverseProxy that:
-//   1. Strips the /api/apps/<name> prefix off the incoming path.
+//   1. Strips the legacy /api/apps/<name> or modern binding-gated
+//      /api/apps/callback/apps/<name>/proxy prefix off the path.
 //   2. Replaces the Authorization header with the dependency's
 //      own APTEVA_APP_TOKEN before forwarding (the production
 //      platform proxy does the same swap).
@@ -98,6 +99,13 @@ func spawnDependencies(t *testing.T, parentProjectID string, deps []DependencySp
 		// path segment after — proxy still wants to forward to
 		// the dep's "/" so listings without a path work.
 		mux.Handle("/api/apps/"+l.spec.Name, newDepProxy(t, l.sidecar, prefix))
+		// Production app-to-app streaming uses the authenticated callback
+		// proxy. WithDependency is the testkit's explicit binding declaration,
+		// so mounting the declared dependency here mirrors that gate while
+		// preserving large bodies, Range requests, and streaming responses.
+		boundProxyPrefix := "/api/apps/callback/apps/" + l.spec.Name + "/proxy/"
+		mux.Handle(boundProxyPrefix, newDepProxy(t, l.sidecar, boundProxyPrefix))
+		mux.Handle(strings.TrimSuffix(boundProxyPrefix, "/"), newDepProxy(t, l.sidecar, boundProxyPrefix))
 		// Modern SDK clients route inter-app MCP calls through the
 		// platform callback surface rather than calling /api/apps/<name>
 		// directly. Mirror the production callback adapter so integration
