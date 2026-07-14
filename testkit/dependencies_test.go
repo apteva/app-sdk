@@ -10,11 +10,12 @@ import (
 )
 
 func TestDepProxyForwardsBindingGatedStreamingPath(t *testing.T) {
-	var gotPath, gotAuth, gotRange string
+	var gotPath, gotAuth, gotRange, gotUserID string
 	dep := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		gotPath = r.URL.Path
 		gotAuth = r.Header.Get("Authorization")
 		gotRange = r.Header.Get("Range")
+		gotUserID = r.Header.Get("X-User-ID")
 		w.WriteHeader(http.StatusPartialContent)
 		_, _ = io.WriteString(w, "video-bytes")
 	}))
@@ -40,8 +41,9 @@ func TestDepProxyForwardsBindingGatedStreamingPath(t *testing.T) {
 	if resp.StatusCode != http.StatusPartialContent || string(body) != "video-bytes" {
 		t.Fatalf("response = %d %q", resp.StatusCode, body)
 	}
-	if gotPath != "/files/5300/content" || gotAuth != "Bearer storage-token" || gotRange != "bytes=0-1023" {
-		t.Fatalf("upstream path=%q auth=%q range=%q", gotPath, gotAuth, gotRange)
+	if gotPath != "/files/5300/content" || gotAuth != "Bearer storage-token" ||
+		gotRange != "bytes=0-1023" || gotUserID != "1" {
+		t.Fatalf("upstream path=%q auth=%q range=%q user=%q", gotPath, gotAuth, gotRange, gotUserID)
 	}
 }
 

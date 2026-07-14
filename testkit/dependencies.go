@@ -215,6 +215,11 @@ func newDepProxy(t *testing.T, sc *Sidecar, prefix string) http.Handler {
 		// that don't set Authorization on the inbound request still
 		// work — we just install one regardless.
 		req.Header.Set("Authorization", "Bearer "+sc.Token())
+		// Production authMiddleware also injects the authenticated caller
+		// identity before the app proxy runs. Storage uses this trusted
+		// signal to distinguish private authenticated downloads from
+		// anonymous signed/public requests.
+		req.Header.Set("X-User-ID", "1")
 	}
 
 	rp.ErrorHandler = func(w http.ResponseWriter, r *http.Request, err error) {
