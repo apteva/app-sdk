@@ -63,7 +63,10 @@ func (s *stubProjectPlatformClient) DeleteDNSRecord(DNSRecordRequest) (*DNSRecor
 func (s *stubProjectPlatformClient) SpawnRealtimeThread(RealtimeSpawnRequest) (*RealtimeSpawnResult, error) {
 	return nil, nil
 }
-func (s *stubProjectPlatformClient) KillThread(string) error              { return nil }
+func (s *stubProjectPlatformClient) RenewRealtimeAudioBridge(int64, string) (*RealtimeSpawnResult, error) {
+	return nil, nil
+}
+func (s *stubProjectPlatformClient) KillThread(int64, string) error       { return nil }
 func (s *stubProjectPlatformClient) PlatformInfo() (*PlatformInfo, error) { return nil, nil }
 func (s *stubProjectPlatformClient) ListEnvironments() ([]EnvironmentSummary, error) {
 	return nil, nil

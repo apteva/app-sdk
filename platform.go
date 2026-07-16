@@ -537,11 +537,30 @@ func (c *httpPlatformClient) SpawnRealtimeThread(req RealtimeSpawnRequest) (*Rea
 // KillThread hits /api/apps/callback/threads/{id} with DELETE.
 // Idempotent — 404 on unknown id is treated as success because the
 // caller's intent (no live thread by this name) is already satisfied.
-func (c *httpPlatformClient) KillThread(threadID string) error {
+func (c *httpPlatformClient) RenewRealtimeAudioBridge(agentID int64, threadID string) (*RealtimeSpawnResult, error) {
+	if agentID <= 0 {
+		return nil, errors.New("RenewRealtimeAudioBridge: agent_id required")
+	}
+	if strings.TrimSpace(threadID) == "" {
+		return nil, errors.New("RenewRealtimeAudioBridge: thread_id required")
+	}
+	var out RealtimeSpawnResult
+	path := "/api/apps/callback/threads/" + url.PathEscape(threadID) + "/audio-token?agent_id=" + strconv.FormatInt(agentID, 10)
+	if err := c.post(path, map[string]any{}, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+func (c *httpPlatformClient) KillThread(agentID int64, threadID string) error {
+	if agentID <= 0 {
+		return errors.New("KillThread: agent_id required")
+	}
 	if threadID == "" {
 		return errors.New("KillThread: thread_id required")
 	}
-	req, err := http.NewRequest("DELETE", c.baseURL+"/api/apps/callback/threads/"+threadID, nil)
+	path := "/api/apps/callback/threads/" + url.PathEscape(threadID) + "?agent_id=" + strconv.FormatInt(agentID, 10)
+	req, err := http.NewRequest("DELETE", c.baseURL+path, nil)
 	if err != nil {
 		return err
 	}
@@ -707,8 +726,12 @@ func (p *projectScopedClient) DeleteDNSRecord(req DNSRecordRequest) (*DNSRecordR
 func (p *projectScopedClient) SpawnRealtimeThread(req RealtimeSpawnRequest) (*RealtimeSpawnResult, error) {
 	return p.inner.SpawnRealtimeThread(req)
 }
-func (p *projectScopedClient) KillThread(threadID string) error {
-	return p.inner.KillThread(threadID)
+func (p *projectScopedClient) RenewRealtimeAudioBridge(agentID int64, threadID string) (*RealtimeSpawnResult, error) {
+	return p.inner.RenewRealtimeAudioBridge(agentID, threadID)
+}
+
+func (p *projectScopedClient) KillThread(agentID int64, threadID string) error {
+	return p.inner.KillThread(agentID, threadID)
 }
 func (p *projectScopedClient) PlatformInfo() (*PlatformInfo, error) {
 	return p.inner.PlatformInfo()

@@ -781,19 +781,23 @@ type PlatformClient interface {
 	// off the call returns a 403 with a clear "feature disabled"
 	// message that the caller should surface verbatim to the agent.
 	//
-	// The audio bridge token in the response is single-use: the
-	// first WebSocket that connects with it gets the channels, and
-	// the token is consumed. Tokens expire after 5 minutes if
-	// unused.
+	// The returned public WebSocket URL already includes a single-use,
+	// thread-scoped token. Dial it as-is; apps do not need the core API
+	// key and must not replace its host with loopback. Tokens expire
+	// after 5 minutes if unused.
 	SpawnRealtimeThread(req RealtimeSpawnRequest) (*RealtimeSpawnResult, error)
 
-	// KillThread terminates a thread by id. Used by apps that own
+	// RenewRealtimeAudioBridge rotates the single-use audio capability for an
+	// existing realtime thread without replacing its provider session.
+	RenewRealtimeAudioBridge(agentID int64, threadID string) (*RealtimeSpawnResult, error)
+
+	// KillThread terminates a thread inside an agent. Used by apps that own
 	// the lifecycle of a sub-thread (telephony app ending a call,
 	// channelchat ending a chat session). Returns nil if the thread
 	// doesn't exist — idempotent. Authorization: install must declare
 	// platform.realtime.spawn (the kill capability is implicit in
 	// the spawn capability — you can only kill threads you can spawn).
-	KillThread(threadID string) error
+	KillThread(agentID int64, threadID string) error
 
 	// PlatformInfo returns the small bag of platform-level facts the
 	// apteva-server is willing to share with sidecars — currently
@@ -1106,8 +1110,8 @@ type OAuthStartResult struct {
 // RealtimeSpawnRequest is the body for PlatformClient.SpawnRealtimeThread.
 // Creates a realtime (voice/audio) thread in core that the app can
 // bridge audio into. The audio bridge runs over a separate
-// authenticated WebSocket — the result carries the URL + token the
-// app uses to connect.
+// token-authenticated WebSocket proxy — the result carries the full
+// URL the app uses to connect.
 type RealtimeSpawnRequest struct {
 	// AgentID — the calling agent's instance id. The realtime thread
 	// is spawned INSIDE this agent (as a sub-thread of main), so
@@ -1123,7 +1127,7 @@ type RealtimeSpawnRequest struct {
 	// Directive — the system instructions the realtime model runs with.
 	// Same shape as a normal sub-thread directive.
 	Directive string `json:"directive"`
-	// Voice — realtime voice id (e.g. "alloy"). Empty = provider default.
+	// Voice — realtime voice id (e.g. "marin"). Empty = provider default.
 	Voice string `json:"voice,omitempty"`
 	// Provider — explicit realtime provider name (e.g. "openai-realtime").
 	// Empty = pool default.
@@ -1134,6 +1138,16 @@ type RealtimeSpawnRequest struct {
 	// MCP — MCP server names the sub-thread should connect to. Empty
 	// = no MCPs (only registry tools the allowlist permits).
 	MCP []string `json:"mcp,omitempty"`
+	// Ephemeral deletes persisted session history when the caller-owned thread
+	// is killed. Use this for temporary conversations such as phone calls.
+	Ephemeral bool `json:"ephemeral,omitempty"`
+	// InitialMessage is injected only after the audio bridge connects, then
+	// immediately requests a provider response. Telephony uses this for the
+	// opening greeting so audio cannot be generated before a listener exists.
+	InitialMessage string `json:"initial_message,omitempty"`
+	// BridgeDisconnectTTLSeconds stops an abandoned realtime thread when its
+	// audio bridge remains disconnected. Zero disables automatic cleanup.
+	BridgeDisconnectTTLSeconds int `json:"bridge_disconnect_ttl_seconds,omitempty"`
 }
 
 // RealtimeSpawnResult is the response from PlatformClient.SpawnRealtimeThread.
@@ -1145,8 +1159,8 @@ type RealtimeSpawnResult struct {
 	// generated the id but wants to thread it through async code.
 	ThreadID string `json:"id"`
 	// AudioBridgeURL — full WebSocket URL the app's audio bridge
-	// should dial. Includes the thread and token query params; the
-	// app should NOT need to construct this. Empty for "exists"
+	// should dial as-is. Includes the public server host plus agent,
+	// thread, and token query params; the app should NOT reconstruct it. Empty for "exists"
 	// status — the original spawner already holds the token.
 	AudioBridgeURL string `json:"audio_bridge_url,omitempty"`
 	// AudioToken — single-use, returned for symmetry with

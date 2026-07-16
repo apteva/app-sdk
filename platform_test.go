@@ -149,3 +149,34 @@ func TestEnvironmentClientCallAppResult(t *testing.T) {
 		t.Fatalf("status=%q, want ok", out.Status)
 	}
 }
+
+func TestRealtimeLifecycleRequestsCarryAgentIdentity(t *testing.T) {
+	var renewed, killed bool
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Query().Get("agent_id") != "42" {
+			t.Fatalf("agent_id=%q", r.URL.Query().Get("agent_id"))
+		}
+		switch {
+		case r.Method == http.MethodPost && r.URL.Path == "/api/apps/callback/threads/voice-one/audio-token":
+			renewed = true
+			_ = json.NewEncoder(w).Encode(RealtimeSpawnResult{Status: "renewed", ThreadID: "voice-one", AudioBridgeURL: "wss://bridge.test"})
+		case r.Method == http.MethodDelete && r.URL.Path == "/api/apps/callback/threads/voice-one":
+			killed = true
+			w.WriteHeader(http.StatusNoContent)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer ts.Close()
+
+	api := newHTTPPlatformClient(ts.URL, "test-token")
+	if _, err := api.RenewRealtimeAudioBridge(42, "voice-one"); err != nil {
+		t.Fatal(err)
+	}
+	if err := api.KillThread(42, "voice-one"); err != nil {
+		t.Fatal(err)
+	}
+	if !renewed || !killed {
+		t.Fatalf("renewed=%t killed=%t", renewed, killed)
+	}
+}

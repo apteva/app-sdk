@@ -150,7 +150,11 @@ func (BasePlatformClient) SpawnRealtimeThread(sdk.RealtimeSpawnRequest) (*sdk.Re
 // KillThread defaults to ErrNotImplemented. Test stubs that pair
 // spawn + kill in a single flow override this to record the kill
 // call.
-func (BasePlatformClient) KillThread(string) error {
+func (BasePlatformClient) RenewRealtimeAudioBridge(int64, string) (*sdk.RealtimeSpawnResult, error) {
+	return nil, ErrNotImplemented
+}
+
+func (BasePlatformClient) KillThread(int64, string) error {
 	return ErrNotImplemented
 }
 
