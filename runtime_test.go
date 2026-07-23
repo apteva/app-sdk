@@ -57,6 +57,8 @@ func TestRuntimeCatalogDiscoveryPaths(t *testing.T) {
 			_ = json.NewEncoder(w).Encode([]RuntimeCatalogIntegration{{Slug: "facebook", Name: "Facebook"}})
 		case "/api/apps/callback/runtimes/catalog/integrations/facebook/tools":
 			_ = json.NewEncoder(w).Encode([]RuntimeCatalogIntegrationTool{{Name: "pages_list", MockResponse: json.RawMessage(`{"data":[]}`)}})
+		case "/api/apps/callback/runtimes/catalog/realtime-providers":
+			_ = json.NewEncoder(w).Encode([]RuntimeRealtimeProvider{{Name: "openai-realtime", DefaultVoice: "marin"}})
 		default:
 			http.NotFound(w, r)
 		}
@@ -72,7 +74,10 @@ func TestRuntimeCatalogDiscoveryPaths(t *testing.T) {
 	if tools, err := c.ListRuntimeCatalogIntegrationTools("facebook"); err != nil || len(tools) != 1 {
 		t.Fatalf("integration tools=%#v err=%v", tools, err)
 	}
-	for _, path := range []string{"/api/apps/callback/runtimes/catalog/apps/42/tools", "/api/apps/callback/runtimes/catalog/integrations", "/api/apps/callback/runtimes/catalog/integrations/facebook/tools"} {
+	if providers, err := c.ListRuntimeRealtimeProviders("proj-1"); err != nil || len(providers) != 1 {
+		t.Fatalf("realtime providers=%#v err=%v", providers, err)
+	}
+	for _, path := range []string{"/api/apps/callback/runtimes/catalog/apps/42/tools", "/api/apps/callback/runtimes/catalog/integrations", "/api/apps/callback/runtimes/catalog/integrations/facebook/tools", "/api/apps/callback/runtimes/catalog/realtime-providers"} {
 		if !seen[path] {
 			t.Fatalf("path not requested: %s", path)
 		}
@@ -114,5 +119,47 @@ func TestRuntimeAgentSpawnAndWaitContracts(t *testing.T) {
 	}
 	if execution.Status != "completed" || execution.Turns != 7 || execution.Metrics.Model != "claude-test" {
 		t.Fatalf("execution=%#v", execution)
+	}
+}
+
+func TestRuntimeRealtimeThreadContracts(t *testing.T) {
+	var spawn RuntimeRealtimeSpawnRequest
+	seenRenew, seenStop := false, false
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch {
+		case r.URL.Path == "/api/apps/callback/runtimes/rt-1/agents/main/realtime" && r.Method == http.MethodPost:
+			if err := json.NewDecoder(r.Body).Decode(&spawn); err != nil {
+				t.Fatal(err)
+			}
+			_ = json.NewEncoder(w).Encode(RealtimeSpawnResult{Status: "created", ThreadID: spawn.ThreadID, AudioBridgeURL: "ws://bridge.test"})
+		case r.URL.Path == "/api/apps/callback/runtimes/rt-1/agents/main/realtime/voice/audio-token" && r.Method == http.MethodPost:
+			seenRenew = true
+			_ = json.NewEncoder(w).Encode(RealtimeSpawnResult{Status: "renewed", ThreadID: "voice", AudioBridgeURL: "ws://bridge.test/renewed"})
+		case r.URL.Path == "/api/apps/callback/runtimes/rt-1/agents/main/realtime/voice" && r.Method == http.MethodDelete:
+			seenStop = true
+			w.WriteHeader(http.StatusNoContent)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	c := &httpPlatformClient{baseURL: server.URL, token: "token", client: server.Client(), slowClient: server.Client()}
+	result, err := c.SpawnRuntimeRealtimeThread("rt-1", "main", RuntimeRealtimeSpawnRequest{ThreadID: "voice", Directive: "Answer callers", Provider: "openai-realtime"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.ThreadID != "voice" || spawn.Provider != "openai-realtime" {
+		t.Fatalf("result=%#v spawn=%#v", result, spawn)
+	}
+	if _, err := c.RenewRuntimeRealtimeAudioBridge("rt-1", "main", "voice"); err != nil {
+		t.Fatal(err)
+	}
+	if err := c.StopRuntimeRealtimeThread("rt-1", "main", "voice"); err != nil {
+		t.Fatal(err)
+	}
+	if !seenRenew || !seenStop {
+		t.Fatalf("renew=%v stop=%v", seenRenew, seenStop)
 	}
 }

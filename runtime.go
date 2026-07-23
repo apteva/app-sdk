@@ -34,6 +34,9 @@ type RuntimeClient interface {
 	ListRuntimeAgentThreads(runtimeID, agentOrAlias string) (json.RawMessage, error)
 	GetRuntimeAgentThread(runtimeID, agentOrAlias, threadID string) (json.RawMessage, error)
 	ListRuntimeAgentTelemetry(runtimeID, agentOrAlias string, since time.Time, limit int) ([]RuntimeTelemetryEvent, error)
+	SpawnRuntimeRealtimeThread(runtimeID, agentOrAlias string, req RuntimeRealtimeSpawnRequest) (*RealtimeSpawnResult, error)
+	RenewRuntimeRealtimeAudioBridge(runtimeID, agentOrAlias, threadID string) (*RealtimeSpawnResult, error)
+	StopRuntimeRealtimeThread(runtimeID, agentOrAlias, threadID string) error
 
 	ListRuntimeEdgeCalls(runtimeID string) ([]RuntimeEdgeCall, error)
 	GetRuntimeCassette(runtimeID string) (json.RawMessage, error)
@@ -45,6 +48,7 @@ type RuntimeClient interface {
 	ListRuntimeCatalogAppTools(installID int64) ([]RuntimeMCPTool, error)
 	ListRuntimeCatalogIntegrations() ([]RuntimeCatalogIntegration, error)
 	ListRuntimeCatalogIntegrationTools(slug string) ([]RuntimeCatalogIntegrationTool, error)
+	ListRuntimeRealtimeProviders(projectID string) ([]RuntimeRealtimeProvider, error)
 	ListRuntimeCatalogAgents(projectID string) ([]RuntimeCatalogAgent, error)
 	GetRuntimeAgentCapabilities(agentID int64) ([]RuntimeAgentCapability, error)
 	UpdateAgentDirective(agentID int64, req AgentDirectiveUpdateRequest) (*RuntimeCatalogAgent, error)
@@ -143,6 +147,21 @@ type RuntimeAgent struct {
 type RuntimeAgentEventRequest struct {
 	Message  string `json:"message"`
 	ThreadID string `json:"thread_id,omitempty"`
+}
+
+// RuntimeRealtimeSpawnRequest starts a voice/audio sub-thread inside a runtime
+// agent. The runtime and target agent are selected by the method arguments, so
+// this request never accepts a global agent id.
+type RuntimeRealtimeSpawnRequest struct {
+	ThreadID                   string   `json:"thread_id"`
+	Directive                  string   `json:"directive"`
+	Voice                      string   `json:"voice,omitempty"`
+	Provider                   string   `json:"provider,omitempty"`
+	Tools                      []string `json:"tools,omitempty"`
+	MCP                        []string `json:"mcp,omitempty"`
+	Ephemeral                  bool     `json:"ephemeral,omitempty"`
+	InitialMessage             string   `json:"initial_message,omitempty"`
+	BridgeDisconnectTTLSeconds int      `json:"bridge_disconnect_ttl_seconds,omitempty"`
 }
 
 // RuntimeAgentWaitRequest controls completion detection for one execution.
@@ -302,6 +321,12 @@ type RuntimeCatalogIntegrationTool struct {
 	MockResponse json.RawMessage `json:"mock_response,omitempty"`
 }
 
+type RuntimeRealtimeProvider struct {
+	Name         string            `json:"name"`
+	Models       map[string]string `json:"models"`
+	DefaultVoice string            `json:"default_voice,omitempty"`
+}
+
 type RuntimeCatalogAgent struct {
 	ID            int64  `json:"id"`
 	Name          string `json:"name"`
@@ -438,6 +463,28 @@ func (c *httpPlatformClient) ListRuntimeAgentTelemetry(runtimeID, agentOrAlias s
 	return out, err
 }
 
+func (c *httpPlatformClient) SpawnRuntimeRealtimeThread(runtimeID, agentOrAlias string, req RuntimeRealtimeSpawnRequest) (*RealtimeSpawnResult, error) {
+	var out RealtimeSpawnResult
+	if err := c.postWith(c.slowClient, runtimeAgentPath(runtimeID, agentOrAlias)+"/realtime", req, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+func (c *httpPlatformClient) RenewRuntimeRealtimeAudioBridge(runtimeID, agentOrAlias, threadID string) (*RealtimeSpawnResult, error) {
+	var out RealtimeSpawnResult
+	path := runtimeAgentPath(runtimeID, agentOrAlias) + "/realtime/" + url.PathEscape(strings.TrimSpace(threadID)) + "/audio-token"
+	if err := c.post(path, map[string]any{}, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+func (c *httpPlatformClient) StopRuntimeRealtimeThread(runtimeID, agentOrAlias, threadID string) error {
+	path := runtimeAgentPath(runtimeID, agentOrAlias) + "/realtime/" + url.PathEscape(strings.TrimSpace(threadID))
+	return c.delete(path, nil)
+}
+
 func (c *httpPlatformClient) ListRuntimeEdgeCalls(runtimeID string) ([]RuntimeEdgeCall, error) {
 	var out []RuntimeEdgeCall
 	err := c.get(runtimePath(runtimeID)+"/edge/calls", &out)
@@ -487,6 +534,12 @@ func (c *httpPlatformClient) ListRuntimeCatalogIntegrations() ([]RuntimeCatalogI
 func (c *httpPlatformClient) ListRuntimeCatalogIntegrationTools(slug string) ([]RuntimeCatalogIntegrationTool, error) {
 	var out []RuntimeCatalogIntegrationTool
 	err := c.get("/api/apps/callback/runtimes/catalog/integrations/"+url.PathEscape(strings.TrimSpace(slug))+"/tools", &out)
+	return out, err
+}
+
+func (c *httpPlatformClient) ListRuntimeRealtimeProviders(projectID string) ([]RuntimeRealtimeProvider, error) {
+	var out []RuntimeRealtimeProvider
+	err := c.get("/api/apps/callback/runtimes/catalog/realtime-providers?project_id="+url.QueryEscape(projectID), &out)
 	return out, err
 }
 
@@ -586,6 +639,15 @@ func (p *projectScopedClient) GetRuntimeAgentThread(r, a, t string) (json.RawMes
 func (p *projectScopedClient) ListRuntimeAgentTelemetry(r, a string, since time.Time, limit int) ([]RuntimeTelemetryEvent, error) {
 	return p.runtime().ListRuntimeAgentTelemetry(r, a, since, limit)
 }
+func (p *projectScopedClient) SpawnRuntimeRealtimeThread(r, a string, req RuntimeRealtimeSpawnRequest) (*RealtimeSpawnResult, error) {
+	return p.runtime().SpawnRuntimeRealtimeThread(r, a, req)
+}
+func (p *projectScopedClient) RenewRuntimeRealtimeAudioBridge(r, a, t string) (*RealtimeSpawnResult, error) {
+	return p.runtime().RenewRuntimeRealtimeAudioBridge(r, a, t)
+}
+func (p *projectScopedClient) StopRuntimeRealtimeThread(r, a, t string) error {
+	return p.runtime().StopRuntimeRealtimeThread(r, a, t)
+}
 func (p *projectScopedClient) ListRuntimeEdgeCalls(r string) ([]RuntimeEdgeCall, error) {
 	return p.runtime().ListRuntimeEdgeCalls(r)
 }
@@ -615,6 +677,12 @@ func (p *projectScopedClient) ListRuntimeCatalogIntegrations() ([]RuntimeCatalog
 }
 func (p *projectScopedClient) ListRuntimeCatalogIntegrationTools(slug string) ([]RuntimeCatalogIntegrationTool, error) {
 	return p.runtime().ListRuntimeCatalogIntegrationTools(slug)
+}
+func (p *projectScopedClient) ListRuntimeRealtimeProviders(projectID string) ([]RuntimeRealtimeProvider, error) {
+	if projectID == "" {
+		projectID = p.projectID
+	}
+	return p.runtime().ListRuntimeRealtimeProviders(projectID)
 }
 func (p *projectScopedClient) ListRuntimeCatalogAgents(projectID string) ([]RuntimeCatalogAgent, error) {
 	if projectID == "" {
