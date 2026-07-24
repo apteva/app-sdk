@@ -19,8 +19,11 @@ type RuntimeClient interface {
 	DestroyRuntime(id string) error
 
 	ListRuntimeAppTools(runtimeID, appName string) ([]RuntimeMCPTool, error)
+	GetRuntimeAppEndpoint(runtimeID, appName string) (*RuntimeAppEndpoint, error)
 	CallRuntimeApp(runtimeID, appName, tool string, input map[string]any) (json.RawMessage, error)
 	CallRuntimeAppResult(runtimeID, appName, tool string, input map[string]any, out any) error
+	CallRuntimeAppAsAgent(runtimeID, appName, agentAlias, tool string, input map[string]any) (json.RawMessage, error)
+	CallRuntimeAppAsAgentResult(runtimeID, appName, agentAlias, tool string, input map[string]any, out any) error
 	ListRuntimeManagedMCPTools(runtimeID, mcpName string) ([]RuntimeMCPTool, error)
 	CallRuntimeManagedMCP(runtimeID, mcpName, tool string, input map[string]any) (json.RawMessage, error)
 	CallRuntimeManagedMCPResult(runtimeID, mcpName, tool string, input map[string]any, out any) error
@@ -103,6 +106,15 @@ type RuntimeApp struct {
 	InstallID int64  `json:"install_id,omitempty"`
 	Kind      string `json:"kind"`
 	Status    string `json:"status"`
+}
+
+// RuntimeAppEndpoint is a runtime-scoped URL for exercising an app's regular
+// HTTP and WebSocket routes. PlatformURL is the base URL apps in that runtime
+// receive from WhoAmI; AppURL addresses this specific temporary install.
+type RuntimeAppEndpoint struct {
+	PlatformURL string `json:"platform_url"`
+	GatewayURL  string `json:"gateway_url"`
+	AppURL      string `json:"app_url"`
 }
 
 type RuntimeMCPTool struct {
@@ -407,16 +419,44 @@ func (c *httpPlatformClient) ListRuntimeAppTools(runtimeID, appName string) ([]R
 	return out, err
 }
 
+func (c *httpPlatformClient) GetRuntimeAppEndpoint(runtimeID, appName string) (*RuntimeAppEndpoint, error) {
+	var out RuntimeAppEndpoint
+	if err := c.get(runtimePath(runtimeID)+"/apps/"+url.PathEscape(appName)+"/endpoint", &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
 func (c *httpPlatformClient) CallRuntimeApp(runtimeID, appName, tool string, input map[string]any) (json.RawMessage, error) {
+	return c.callRuntimeApp(runtimeID, appName, "", tool, input)
+}
+
+func (c *httpPlatformClient) CallRuntimeAppAsAgent(runtimeID, appName, agentAlias, tool string, input map[string]any) (json.RawMessage, error) {
+	return c.callRuntimeApp(runtimeID, appName, agentAlias, tool, input)
+}
+
+func (c *httpPlatformClient) callRuntimeApp(runtimeID, appName, agentAlias, tool string, input map[string]any) (json.RawMessage, error) {
 	var out struct {
 		Result json.RawMessage `json:"result"`
 	}
-	err := c.postWith(c.slowClient, runtimePath(runtimeID)+"/apps/"+url.PathEscape(appName)+"/call", map[string]any{"tool": tool, "input": input}, &out)
+	body := map[string]any{"tool": tool, "input": input}
+	if strings.TrimSpace(agentAlias) != "" {
+		body["agent_alias"] = agentAlias
+	}
+	err := c.postWith(c.slowClient, runtimePath(runtimeID)+"/apps/"+url.PathEscape(appName)+"/call", body, &out)
 	return out.Result, err
 }
 
 func (c *httpPlatformClient) CallRuntimeAppResult(runtimeID, appName, tool string, input map[string]any, out any) error {
 	raw, err := c.CallRuntimeApp(runtimeID, appName, tool, input)
+	if err != nil {
+		return err
+	}
+	return decodeMCPEnvelope(raw, appName, tool, out)
+}
+
+func (c *httpPlatformClient) CallRuntimeAppAsAgentResult(runtimeID, appName, agentAlias, tool string, input map[string]any, out any) error {
+	raw, err := c.CallRuntimeAppAsAgent(runtimeID, appName, agentAlias, tool, input)
 	if err != nil {
 		return err
 	}
@@ -654,11 +694,20 @@ func (p *projectScopedClient) DestroyRuntime(id string) error { return p.runtime
 func (p *projectScopedClient) ListRuntimeAppTools(r, a string) ([]RuntimeMCPTool, error) {
 	return p.runtime().ListRuntimeAppTools(r, a)
 }
+func (p *projectScopedClient) GetRuntimeAppEndpoint(r, a string) (*RuntimeAppEndpoint, error) {
+	return p.runtime().GetRuntimeAppEndpoint(r, a)
+}
 func (p *projectScopedClient) CallRuntimeApp(r, a, t string, in map[string]any) (json.RawMessage, error) {
 	return p.runtime().CallRuntimeApp(r, a, t, in)
 }
 func (p *projectScopedClient) CallRuntimeAppResult(r, a, t string, in map[string]any, out any) error {
 	return p.runtime().CallRuntimeAppResult(r, a, t, in, out)
+}
+func (p *projectScopedClient) CallRuntimeAppAsAgent(r, a, alias, t string, in map[string]any) (json.RawMessage, error) {
+	return p.runtime().CallRuntimeAppAsAgent(r, a, alias, t, in)
+}
+func (p *projectScopedClient) CallRuntimeAppAsAgentResult(r, a, alias, t string, in map[string]any, out any) error {
+	return p.runtime().CallRuntimeAppAsAgentResult(r, a, alias, t, in, out)
 }
 func (p *projectScopedClient) ListRuntimeManagedMCPTools(r, m string) ([]RuntimeMCPTool, error) {
 	return p.runtime().ListRuntimeManagedMCPTools(r, m)

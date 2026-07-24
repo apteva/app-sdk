@@ -45,6 +45,39 @@ func TestRuntimeAPIUnavailableForPlatformOnlyStub(t *testing.T) {
 	}
 }
 
+func TestRuntimeAppEndpointAndAgentCallContracts(t *testing.T) {
+	var call map[string]any
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/api/apps/callback/runtimes/rt-1/apps/telephony/endpoint":
+			_ = json.NewEncoder(w).Encode(RuntimeAppEndpoint{PlatformURL: "https://runtime.test", GatewayURL: "http://127.0.0.1/runtime", AppURL: "http://127.0.0.1/runtime/api/apps/telephony/_install/7"})
+		case "/api/apps/callback/runtimes/rt-1/apps/telephony/call":
+			if err := json.NewDecoder(r.Body).Decode(&call); err != nil {
+				t.Fatal(err)
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{"result": json.RawMessage(`{"content":[{"type":"text","text":"{\"ok\":true}"}]}`)})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+	c := &httpPlatformClient{baseURL: server.URL, token: "token", client: server.Client(), slowClient: server.Client()}
+	endpoint, err := c.GetRuntimeAppEndpoint("rt-1", "telephony")
+	if err != nil || endpoint.AppURL == "" {
+		t.Fatalf("endpoint=%#v err=%v", endpoint, err)
+	}
+	var out struct {
+		OK bool `json:"ok"`
+	}
+	if err := c.CallRuntimeAppAsAgentResult("rt-1", "telephony", "main", "telephony_routes_create", map[string]any{"answer_mode": "realtime_immediate"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	if call["agent_alias"] != "main" || call["tool"] != "telephony_routes_create" || !out.OK {
+		t.Fatalf("call=%#v out=%#v", call, out)
+	}
+}
+
 func TestRuntimeCatalogDiscoveryPaths(t *testing.T) {
 	seen := map[string]bool{}
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
