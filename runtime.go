@@ -21,6 +21,9 @@ type RuntimeClient interface {
 	ListRuntimeAppTools(runtimeID, appName string) ([]RuntimeMCPTool, error)
 	CallRuntimeApp(runtimeID, appName, tool string, input map[string]any) (json.RawMessage, error)
 	CallRuntimeAppResult(runtimeID, appName, tool string, input map[string]any, out any) error
+	ListRuntimeManagedMCPTools(runtimeID, mcpName string) ([]RuntimeMCPTool, error)
+	CallRuntimeManagedMCP(runtimeID, mcpName, tool string, input map[string]any) (json.RawMessage, error)
+	CallRuntimeManagedMCPResult(runtimeID, mcpName, tool string, input map[string]any, out any) error
 
 	AttachRuntimeMCP(runtimeID string, req RuntimeMCPAttachmentRequest) (*RuntimeMCPAttachment, error)
 	ListRuntimeMCPAttachments(runtimeID string) ([]RuntimeMCPAttachment, error)
@@ -46,6 +49,7 @@ type RuntimeClient interface {
 
 	ListRuntimeCatalogApps(projectID string) ([]RuntimeCatalogApp, error)
 	ListRuntimeCatalogAppTools(installID int64) ([]RuntimeMCPTool, error)
+	ListRuntimeCatalogManagedMCPServers(projectID string) ([]RuntimeCatalogManagedMCPServer, error)
 	ListRuntimeCatalogIntegrations() ([]RuntimeCatalogIntegration, error)
 	ListRuntimeCatalogIntegrationTools(slug string) ([]RuntimeCatalogIntegrationTool, error)
 	ListRuntimeRealtimeProviders(projectID string) ([]RuntimeRealtimeProvider, error)
@@ -60,6 +64,7 @@ type RuntimeCreateRequest struct {
 	TTLSeconds          int                         `json:"ttl_seconds,omitempty"`
 	AppInstallIDs       []int64                     `json:"app_install_ids,omitempty"`
 	ConnectionIDs       []int64                     `json:"connection_ids,omitempty"`
+	MCPServerIDs        []int64                     `json:"mcp_server_ids,omitempty"`
 	NetworkMode         RuntimeNetworkMode          `json:"network_mode,omitempty"`
 	IntegrationMode     string                      `json:"integration_mode,omitempty"`
 	AllowHostSuffixes   []string                    `json:"allow_host_suffixes,omitempty"`
@@ -87,6 +92,7 @@ type RuntimeSummary struct {
 	IntegrationMode string                 `json:"integration_mode"`
 	Apps            []RuntimeApp           `json:"apps"`
 	Agents          []RuntimeAgent         `json:"agents"`
+	ManagedMCPs     []RuntimeManagedMCP    `json:"managed_mcps"`
 	MCPAttachments  []RuntimeMCPAttachment `json:"mcp_attachments"`
 	CreatedAt       time.Time              `json:"created_at"`
 	ExpiresAt       time.Time              `json:"expires_at"`
@@ -103,6 +109,15 @@ type RuntimeMCPTool struct {
 	Name        string         `json:"name"`
 	Description string         `json:"description,omitempty"`
 	InputSchema map[string]any `json:"inputSchema"`
+}
+
+type RuntimeManagedMCP struct {
+	SourceID    int64  `json:"source_id"`
+	Name        string `json:"name"`
+	Description string `json:"description,omitempty"`
+	Revision    string `json:"revision,omitempty"`
+	Status      string `json:"status"`
+	ToolCount   int    `json:"tool_count"`
 }
 
 type RuntimeMCPAttachmentRequest struct {
@@ -283,13 +298,24 @@ type RuntimeSnapshotRequest struct {
 }
 
 type RuntimeSnapshot struct {
-	ID          string    `json:"id"`
-	ProjectID   string    `json:"project_id"`
-	Description string    `json:"description,omitempty"`
-	Apps        []string  `json:"apps"`
-	HasAgent    bool      `json:"has_agent"`
-	HasCassette bool      `json:"has_cassette"`
-	CreatedAt   time.Time `json:"created_at"`
+	ID          string              `json:"id"`
+	ProjectID   string              `json:"project_id"`
+	Description string              `json:"description,omitempty"`
+	Apps        []string            `json:"apps"`
+	ManagedMCPs []RuntimeManagedMCP `json:"managed_mcps,omitempty"`
+	HasAgent    bool                `json:"has_agent"`
+	HasCassette bool                `json:"has_cassette"`
+	CreatedAt   time.Time           `json:"created_at"`
+}
+
+type RuntimeCatalogManagedMCPServer struct {
+	ID           int64    `json:"id"`
+	Name         string   `json:"name"`
+	Description  string   `json:"description,omitempty"`
+	Status       string   `json:"status"`
+	ToolCount    int      `json:"tool_count"`
+	AllowedTools []string `json:"allowed_tools,omitempty"`
+	Revision     string   `json:"revision,omitempty"`
 }
 
 type RuntimeCatalogApp struct {
@@ -395,6 +421,28 @@ func (c *httpPlatformClient) CallRuntimeAppResult(runtimeID, appName, tool strin
 		return err
 	}
 	return decodeMCPEnvelope(raw, appName, tool, out)
+}
+
+func (c *httpPlatformClient) ListRuntimeManagedMCPTools(runtimeID, mcpName string) ([]RuntimeMCPTool, error) {
+	var out []RuntimeMCPTool
+	err := c.get(runtimePath(runtimeID)+"/managed-mcps/"+url.PathEscape(mcpName)+"/tools", &out)
+	return out, err
+}
+
+func (c *httpPlatformClient) CallRuntimeManagedMCP(runtimeID, mcpName, tool string, input map[string]any) (json.RawMessage, error) {
+	var out struct {
+		Result json.RawMessage `json:"result"`
+	}
+	err := c.postWith(c.slowClient, runtimePath(runtimeID)+"/managed-mcps/"+url.PathEscape(mcpName)+"/call", map[string]any{"tool": tool, "input": input}, &out)
+	return out.Result, err
+}
+
+func (c *httpPlatformClient) CallRuntimeManagedMCPResult(runtimeID, mcpName, tool string, input map[string]any, out any) error {
+	raw, err := c.CallRuntimeManagedMCP(runtimeID, mcpName, tool, input)
+	if err != nil {
+		return err
+	}
+	return decodeMCPEnvelope(raw, mcpName, tool, out)
 }
 
 func (c *httpPlatformClient) AttachRuntimeMCP(runtimeID string, req RuntimeMCPAttachmentRequest) (*RuntimeMCPAttachment, error) {
@@ -525,6 +573,12 @@ func (c *httpPlatformClient) ListRuntimeCatalogAppTools(installID int64) ([]Runt
 	return out, err
 }
 
+func (c *httpPlatformClient) ListRuntimeCatalogManagedMCPServers(projectID string) ([]RuntimeCatalogManagedMCPServer, error) {
+	var out []RuntimeCatalogManagedMCPServer
+	err := c.get("/api/apps/callback/runtimes/catalog/managed-mcps?project_id="+url.QueryEscape(projectID), &out)
+	return out, err
+}
+
 func (c *httpPlatformClient) ListRuntimeCatalogIntegrations() ([]RuntimeCatalogIntegration, error) {
 	var out []RuntimeCatalogIntegration
 	err := c.get("/api/apps/callback/runtimes/catalog/integrations", &out)
@@ -606,6 +660,15 @@ func (p *projectScopedClient) CallRuntimeApp(r, a, t string, in map[string]any) 
 func (p *projectScopedClient) CallRuntimeAppResult(r, a, t string, in map[string]any, out any) error {
 	return p.runtime().CallRuntimeAppResult(r, a, t, in, out)
 }
+func (p *projectScopedClient) ListRuntimeManagedMCPTools(r, m string) ([]RuntimeMCPTool, error) {
+	return p.runtime().ListRuntimeManagedMCPTools(r, m)
+}
+func (p *projectScopedClient) CallRuntimeManagedMCP(r, m, t string, in map[string]any) (json.RawMessage, error) {
+	return p.runtime().CallRuntimeManagedMCP(r, m, t, in)
+}
+func (p *projectScopedClient) CallRuntimeManagedMCPResult(r, m, t string, in map[string]any, out any) error {
+	return p.runtime().CallRuntimeManagedMCPResult(r, m, t, in, out)
+}
 func (p *projectScopedClient) AttachRuntimeMCP(r string, req RuntimeMCPAttachmentRequest) (*RuntimeMCPAttachment, error) {
 	return p.runtime().AttachRuntimeMCP(r, req)
 }
@@ -671,6 +734,12 @@ func (p *projectScopedClient) ListRuntimeCatalogApps(projectID string) ([]Runtim
 }
 func (p *projectScopedClient) ListRuntimeCatalogAppTools(installID int64) ([]RuntimeMCPTool, error) {
 	return p.runtime().ListRuntimeCatalogAppTools(installID)
+}
+func (p *projectScopedClient) ListRuntimeCatalogManagedMCPServers(projectID string) ([]RuntimeCatalogManagedMCPServer, error) {
+	if projectID == "" {
+		projectID = p.projectID
+	}
+	return p.runtime().ListRuntimeCatalogManagedMCPServers(projectID)
 }
 func (p *projectScopedClient) ListRuntimeCatalogIntegrations() ([]RuntimeCatalogIntegration, error) {
 	return p.runtime().ListRuntimeCatalogIntegrations()

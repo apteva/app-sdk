@@ -29,11 +29,11 @@ func TestRuntimeClientCreateUsesAppCallbackAndProjectScope(t *testing.T) {
 	if runtimes == nil {
 		t.Fatal("default AppCtx did not expose RuntimeAPI")
 	}
-	created, err := runtimes.CreateRuntime(RuntimeCreateRequest{ID: "rt-1"})
+	created, err := runtimes.CreateRuntime(RuntimeCreateRequest{ID: "rt-1", MCPServerIDs: []int64{17}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.ProjectID != "proj-1" || created.ProjectID != "proj-1" {
+	if got.ProjectID != "proj-1" || created.ProjectID != "proj-1" || len(got.MCPServerIDs) != 1 || got.MCPServerIDs[0] != 17 {
 		t.Fatalf("project scope not forwarded: request=%q response=%q", got.ProjectID, created.ProjectID)
 	}
 }
@@ -55,6 +55,8 @@ func TestRuntimeCatalogDiscoveryPaths(t *testing.T) {
 			_ = json.NewEncoder(w).Encode([]RuntimeMCPTool{{Name: "contact_create"}})
 		case "/api/apps/callback/runtimes/catalog/integrations":
 			_ = json.NewEncoder(w).Encode([]RuntimeCatalogIntegration{{Slug: "facebook", Name: "Facebook"}})
+		case "/api/apps/callback/runtimes/catalog/managed-mcps":
+			_ = json.NewEncoder(w).Encode([]RuntimeCatalogManagedMCPServer{{ID: 17, Name: "customer-tools"}})
 		case "/api/apps/callback/runtimes/catalog/integrations/facebook/tools":
 			_ = json.NewEncoder(w).Encode([]RuntimeCatalogIntegrationTool{{Name: "pages_list", MockResponse: json.RawMessage(`{"data":[]}`)}})
 		case "/api/apps/callback/runtimes/catalog/realtime-providers":
@@ -71,13 +73,16 @@ func TestRuntimeCatalogDiscoveryPaths(t *testing.T) {
 	if apps, err := c.ListRuntimeCatalogIntegrations(); err != nil || len(apps) != 1 {
 		t.Fatalf("integrations=%#v err=%v", apps, err)
 	}
+	if servers, err := c.ListRuntimeCatalogManagedMCPServers("proj-1"); err != nil || len(servers) != 1 {
+		t.Fatalf("managed MCPs=%#v err=%v", servers, err)
+	}
 	if tools, err := c.ListRuntimeCatalogIntegrationTools("facebook"); err != nil || len(tools) != 1 {
 		t.Fatalf("integration tools=%#v err=%v", tools, err)
 	}
 	if providers, err := c.ListRuntimeRealtimeProviders("proj-1"); err != nil || len(providers) != 1 {
 		t.Fatalf("realtime providers=%#v err=%v", providers, err)
 	}
-	for _, path := range []string{"/api/apps/callback/runtimes/catalog/apps/42/tools", "/api/apps/callback/runtimes/catalog/integrations", "/api/apps/callback/runtimes/catalog/integrations/facebook/tools", "/api/apps/callback/runtimes/catalog/realtime-providers"} {
+	for _, path := range []string{"/api/apps/callback/runtimes/catalog/apps/42/tools", "/api/apps/callback/runtimes/catalog/managed-mcps", "/api/apps/callback/runtimes/catalog/integrations", "/api/apps/callback/runtimes/catalog/integrations/facebook/tools", "/api/apps/callback/runtimes/catalog/realtime-providers"} {
 		if !seen[path] {
 			t.Fatalf("path not requested: %s", path)
 		}
@@ -119,6 +124,34 @@ func TestRuntimeAgentSpawnAndWaitContracts(t *testing.T) {
 	}
 	if execution.Status != "completed" || execution.Turns != 7 || execution.Metrics.Model != "claude-test" {
 		t.Fatalf("execution=%#v", execution)
+	}
+}
+
+func TestRuntimeManagedMCPCallContracts(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch {
+		case r.URL.Path == "/api/apps/callback/runtimes/rt-1/managed-mcps/customer-tools/tools" && r.Method == http.MethodGet:
+			_ = json.NewEncoder(w).Encode([]RuntimeMCPTool{{Name: "lookup"}})
+		case r.URL.Path == "/api/apps/callback/runtimes/rt-1/managed-mcps/customer-tools/call" && r.Method == http.MethodPost:
+			_ = json.NewEncoder(w).Encode(map[string]any{"result": map[string]any{
+				"content": []map[string]any{{"type": "text", "text": `{"ok":true}`}},
+			}})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	c := &httpPlatformClient{baseURL: server.URL, token: "token", client: server.Client(), slowClient: server.Client()}
+	if tools, err := c.ListRuntimeManagedMCPTools("rt-1", "customer-tools"); err != nil || len(tools) != 1 {
+		t.Fatalf("tools=%#v err=%v", tools, err)
+	}
+	var result struct {
+		OK bool `json:"ok"`
+	}
+	if err := c.CallRuntimeManagedMCPResult("rt-1", "customer-tools", "lookup", map[string]any{}, &result); err != nil || !result.OK {
+		t.Fatalf("result=%#v err=%v", result, err)
 	}
 }
 
