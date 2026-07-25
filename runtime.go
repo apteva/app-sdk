@@ -336,6 +336,7 @@ type RuntimeCatalogApp struct {
 	DisplayName      string           `json:"display_name,omitempty"`
 	Description      string           `json:"description,omitempty"`
 	Icon             string           `json:"icon,omitempty"`
+	IconStyle        string           `json:"icon_style,omitempty"`
 	ProjectID        string           `json:"project_id,omitempty"`
 	Status           string           `json:"status"`
 	IntegrationRoles []IntegrationDep `json:"integration_roles,omitempty"`

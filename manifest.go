@@ -31,15 +31,19 @@ const (
 // requirements, what it provides, and how the platform should host it.
 // Loaded from apteva.yaml in the app's repo root.
 type Manifest struct {
-	Schema      string   `yaml:"schema" json:"schema"`
-	Name        string   `yaml:"name" json:"name"` // slug; matches repo and orchestrator service
-	DisplayName string   `yaml:"display_name" json:"display_name"`
-	Version     string   `yaml:"version" json:"version"` // semver
-	Description string   `yaml:"description" json:"description"`
-	Author      string   `yaml:"author" json:"author"`
-	Homepage    string   `yaml:"homepage" json:"homepage"`
-	Icon        string   `yaml:"icon" json:"icon"`
-	Tags        []string `yaml:"tags" json:"tags"`
+	Schema      string `yaml:"schema" json:"schema"`
+	Name        string `yaml:"name" json:"name"` // slug; matches repo and orchestrator service
+	DisplayName string `yaml:"display_name" json:"display_name"`
+	Version     string `yaml:"version" json:"version"` // semver
+	Description string `yaml:"description" json:"description"`
+	Author      string `yaml:"author" json:"author"`
+	Homepage    string `yaml:"homepage" json:"homepage"`
+	Icon        string `yaml:"icon" json:"icon"`
+	// IconStyle tells clients how to render Icon. "monochrome" assets are
+	// theme-tinted through a CSS/native mask; "image" assets retain their
+	// authored colours. Empty preserves the legacy image behaviour.
+	IconStyle string   `yaml:"icon_style,omitempty" json:"icon_style,omitempty"`
+	Tags      []string `yaml:"tags" json:"tags"`
 
 	Scopes           []Scope `yaml:"scopes" json:"scopes"`
 	MinAptevaVersion string  `yaml:"min_apteva_version" json:"min_apteva_version"`
@@ -931,6 +935,14 @@ func ValidateManifest(m *Manifest) error {
 	}
 	if m.Version == "" {
 		return errors.New("version required")
+	}
+	switch m.IconStyle {
+	case "", "image", "monochrome":
+	default:
+		return fmt.Errorf("icon_style %q invalid (image | monochrome)", m.IconStyle)
+	}
+	if m.IconStyle != "" && strings.TrimSpace(m.Icon) == "" {
+		return errors.New("icon required when icon_style is set")
 	}
 	if len(m.Scopes) == 0 {
 		m.Scopes = []Scope{ScopeProject}
