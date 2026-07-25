@@ -754,6 +754,18 @@ type PlatformClient interface {
 	//      for one of those roles (operator actually bound it).
 	GetConnectionCredentials(id int64) (*ConnectionCredentials, error)
 
+	// EnsureIntegrationWebhook registers or reconciles an external webhook
+	// for a connection bound to this install. The platform constructs the
+	// public callback URL, calls the provider, and stores the provider's
+	// signing secret encrypted. Provider credentials and signing secrets
+	// are never returned to the app.
+	EnsureIntegrationWebhook(req IntegrationWebhookEnsureRequest) (*IntegrationWebhookStatus, error)
+
+	// VerifyIntegrationWebhook verifies a raw provider payload against the
+	// encrypted signing secret owned by the platform. Event contains the
+	// unchanged, verified provider event JSON.
+	VerifyIntegrationWebhook(req IntegrationWebhookVerifyRequest) (*IntegrationWebhookVerifyResult, error)
+
 	// ListProjects returns the projects this install can dispatch
 	// against. For project-scoped installs that's a singleton list
 	// holding the install's pinned project. For global installs it's
@@ -1196,6 +1208,37 @@ type ConnectionCredentials struct {
 	Slug         string            `json:"slug"`
 	Fields       map[string]string `json:"fields"`
 	FetchedAt    time.Time         `json:"fetched_at"`
+}
+
+type IntegrationWebhookEnsureRequest struct {
+	ConnectionID int64    `json:"connection_id"`
+	Role         string   `json:"role"`
+	CallbackPath string   `json:"callback_path"`
+	Events       []string `json:"events"`
+}
+
+type IntegrationWebhookStatus struct {
+	ID           int64     `json:"id"`
+	ConnectionID int64     `json:"connection_id"`
+	Role         string    `json:"role"`
+	Provider     string    `json:"provider"`
+	CallbackURL  string    `json:"callback_url"`
+	ExternalID   string    `json:"external_id,omitempty"`
+	Status       string    `json:"status"`
+	LastError    string    `json:"last_error,omitempty"`
+	RegisteredAt time.Time `json:"registered_at,omitempty"`
+	UpdatedAt    time.Time `json:"updated_at,omitempty"`
+}
+
+type IntegrationWebhookVerifyRequest struct {
+	Role      string `json:"role"`
+	Payload   string `json:"payload"`
+	Signature string `json:"signature"`
+}
+
+type IntegrationWebhookVerifyResult struct {
+	Provider string          `json:"provider"`
+	Event    json.RawMessage `json:"event"`
 }
 
 type PlatformConnection struct {

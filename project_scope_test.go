@@ -38,6 +38,12 @@ func (s *stubProjectPlatformClient) ListOwnedConnections() ([]PlatformConnection
 	return nil, nil
 }
 func (s *stubProjectPlatformClient) GetGrants(int64) (*GrantsResponse, error) { return nil, nil }
+func (s *stubProjectPlatformClient) EnsureIntegrationWebhook(IntegrationWebhookEnsureRequest) (*IntegrationWebhookStatus, error) {
+	return nil, nil
+}
+func (s *stubProjectPlatformClient) VerifyIntegrationWebhook(IntegrationWebhookVerifyRequest) (*IntegrationWebhookVerifyResult, error) {
+	return nil, nil
+}
 func (s *stubProjectPlatformClient) GetConnectionCredentials(int64) (*ConnectionCredentials, error) {
 	return nil, nil
 }

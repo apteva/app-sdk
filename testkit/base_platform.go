@@ -106,6 +106,14 @@ func (BasePlatformClient) GetConnectionCredentials(int64) (*sdk.ConnectionCreden
 	return nil, ErrNotImplemented
 }
 
+func (BasePlatformClient) EnsureIntegrationWebhook(sdk.IntegrationWebhookEnsureRequest) (*sdk.IntegrationWebhookStatus, error) {
+	return nil, ErrNotImplemented
+}
+
+func (BasePlatformClient) VerifyIntegrationWebhook(sdk.IntegrationWebhookVerifyRequest) (*sdk.IntegrationWebhookVerifyResult, error) {
+	return nil, ErrNotImplemented
+}
+
 // ListProjects defaults to a singleton list holding the project_id
 // pinned via tk.WithProject — that's the project the test's AppCtx
 // is running against. Tests that exercise the per-project dispatch

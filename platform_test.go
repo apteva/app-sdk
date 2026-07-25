@@ -180,3 +180,68 @@ func TestRealtimeLifecycleRequestsCarryAgentIdentity(t *testing.T) {
 		t.Fatalf("renewed=%t killed=%t", renewed, killed)
 	}
 }
+
+func TestIntegrationWebhookLifecycleRequests(t *testing.T) {
+	var ensured, verified bool
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Authorization") != "Bearer test-token" {
+			t.Fatalf("Authorization=%q", r.Header.Get("Authorization"))
+		}
+		switch r.URL.Path {
+		case "/api/apps/callback/integration-webhooks/ensure":
+			var req IntegrationWebhookEnsureRequest
+			if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+				t.Fatal(err)
+			}
+			if req.ConnectionID != 57 || req.Role != "payment_processor" ||
+				req.CallbackPath != "/webhooks/stripe" {
+				t.Fatalf("ensure request=%#v", req)
+			}
+			ensured = true
+			_ = json.NewEncoder(w).Encode(IntegrationWebhookStatus{
+				ConnectionID: 57, Role: req.Role, Provider: "stripe", Status: "ready",
+			})
+		case "/api/apps/callback/integration-webhooks/verify":
+			var req IntegrationWebhookVerifyRequest
+			if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+				t.Fatal(err)
+			}
+			if req.Payload != `{"id":"evt_1"}` || req.Signature != "stripe-signature" {
+				t.Fatalf("verify request=%#v", req)
+			}
+			verified = true
+			_ = json.NewEncoder(w).Encode(IntegrationWebhookVerifyResult{
+				Provider: "stripe", Event: json.RawMessage(req.Payload),
+			})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer ts.Close()
+
+	api := newHTTPPlatformClient(ts.URL, "test-token")
+	status, err := api.EnsureIntegrationWebhook(IntegrationWebhookEnsureRequest{
+		ConnectionID: 57,
+		Role:         "payment_processor",
+		CallbackPath: "/webhooks/stripe",
+		Events:       []string{"checkout.session.completed"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if status.Status != "ready" {
+		t.Fatalf("ensure status=%#v", status)
+	}
+	result, err := api.VerifyIntegrationWebhook(IntegrationWebhookVerifyRequest{
+		Role: "payment_processor", Payload: `{"id":"evt_1"}`, Signature: "stripe-signature",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Provider != "stripe" || string(result.Event) != `{"id":"evt_1"}` {
+		t.Fatalf("verify result=%#v", result)
+	}
+	if !ensured || !verified {
+		t.Fatalf("ensured=%t verified=%t", ensured, verified)
+	}
+}

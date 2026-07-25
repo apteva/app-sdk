@@ -318,6 +318,22 @@ func (c *httpPlatformClient) GetConnectionCredentials(id int64) (*ConnectionCred
 	return &out, nil
 }
 
+func (c *httpPlatformClient) EnsureIntegrationWebhook(req IntegrationWebhookEnsureRequest) (*IntegrationWebhookStatus, error) {
+	var out IntegrationWebhookStatus
+	if err := c.post("/api/apps/callback/integration-webhooks/ensure", req, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+func (c *httpPlatformClient) VerifyIntegrationWebhook(req IntegrationWebhookVerifyRequest) (*IntegrationWebhookVerifyResult, error) {
+	var out IntegrationWebhookVerifyResult
+	if err := c.post("/api/apps/callback/integration-webhooks/verify", req, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
 func (c *httpPlatformClient) ListProjects() ([]PlatformProject, error) {
 	var out []PlatformProject
 	if err := c.get("/api/apps/callback/projects", &out); err != nil {
@@ -692,6 +708,12 @@ func (p *projectScopedClient) GetGrants(instanceID int64) (*GrantsResponse, erro
 }
 func (p *projectScopedClient) GetConnectionCredentials(id int64) (*ConnectionCredentials, error) {
 	return p.inner.GetConnectionCredentials(id)
+}
+func (p *projectScopedClient) EnsureIntegrationWebhook(req IntegrationWebhookEnsureRequest) (*IntegrationWebhookStatus, error) {
+	return p.inner.EnsureIntegrationWebhook(req)
+}
+func (p *projectScopedClient) VerifyIntegrationWebhook(req IntegrationWebhookVerifyRequest) (*IntegrationWebhookVerifyResult, error) {
+	return p.inner.VerifyIntegrationWebhook(req)
 }
 func (p *projectScopedClient) ListProjects() ([]PlatformProject, error) {
 	return p.inner.ListProjects()
