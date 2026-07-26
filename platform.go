@@ -318,6 +318,15 @@ func (c *httpPlatformClient) GetConnectionCredentials(id int64) (*ConnectionCred
 	return &out, nil
 }
 
+func (c *httpPlatformClient) GetConnectionPublicConfig(id int64) (*ConnectionPublicConfig, error) {
+	var out ConnectionPublicConfig
+	path := "/api/apps/callback/connections/" + strconv.FormatInt(id, 10) + "/public-config"
+	if err := c.get(path, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
 func (c *httpPlatformClient) EnsureIntegrationWebhook(req IntegrationWebhookEnsureRequest) (*IntegrationWebhookStatus, error) {
 	var out IntegrationWebhookStatus
 	if err := c.post("/api/apps/callback/integration-webhooks/ensure", req, &out); err != nil {
@@ -708,6 +717,9 @@ func (p *projectScopedClient) GetGrants(instanceID int64) (*GrantsResponse, erro
 }
 func (p *projectScopedClient) GetConnectionCredentials(id int64) (*ConnectionCredentials, error) {
 	return p.inner.GetConnectionCredentials(id)
+}
+func (p *projectScopedClient) GetConnectionPublicConfig(id int64) (*ConnectionPublicConfig, error) {
+	return GetConnectionPublicConfig(p.inner, id)
 }
 func (p *projectScopedClient) EnsureIntegrationWebhook(req IntegrationWebhookEnsureRequest) (*IntegrationWebhookStatus, error) {
 	return p.inner.EnsureIntegrationWebhook(req)

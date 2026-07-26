@@ -245,3 +245,31 @@ func TestIntegrationWebhookLifecycleRequests(t *testing.T) {
 		t.Fatalf("ensured=%t verified=%t", ensured, verified)
 	}
 }
+
+func TestGetConnectionPublicConfig(t *testing.T) {
+	var called bool
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet || r.URL.Path != "/api/apps/callback/connections/57/public-config" {
+			http.NotFound(w, r)
+			return
+		}
+		if r.Header.Get("Authorization") != "Bearer test-token" {
+			t.Fatalf("Authorization=%q", r.Header.Get("Authorization"))
+		}
+		called = true
+		_ = json.NewEncoder(w).Encode(ConnectionPublicConfig{
+			ConnectionID: 57,
+			Slug:         "stripe",
+			Fields:       map[string]string{"publishableKey": "pk_test_browser"},
+		})
+	}))
+	defer ts.Close()
+
+	config, err := GetConnectionPublicConfig(newHTTPPlatformClient(ts.URL, "test-token"), 57)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !called || config.Fields["publishableKey"] != "pk_test_browser" {
+		t.Fatalf("unexpected public config: %#v", config)
+	}
+}

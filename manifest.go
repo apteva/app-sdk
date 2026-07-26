@@ -820,6 +820,9 @@ const (
 	// refresh the connections it owns.
 	PermOAuthStart        Permission = "platform.oauth.start"
 	PermConnectionsManage Permission = "platform.connections.manage"
+	// PermConnectionsReadPublicConfig lets an app read only credential fields
+	// explicitly marked exposure=public in the bound integration catalog.
+	PermConnectionsReadPublicConfig Permission = "platform.connections.read_public_config"
 	// PermConnectionsReadCredentials lets an app read raw decrypted
 	// credentials from a bound integration connection. Reserved for
 	// apps whose access pattern can't go through the integration
@@ -885,6 +888,7 @@ func AllPermissions() []Permission {
 		PermMCPAttach, PermChannelsSend, PermAppsCall,
 		PermFSReadShared, PermFSWriteShared,
 		PermOAuthStart, PermConnectionsManage,
+		PermConnectionsReadPublicConfig,
 		PermConnectionsReadCredentials,
 		PermRealtimeSpawn,
 		PermEnvironmentsRead, PermEnvironmentsCall, PermEnvironmentsManage,

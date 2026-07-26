@@ -1210,6 +1210,33 @@ type ConnectionCredentials struct {
 	FetchedAt    time.Time         `json:"fetched_at"`
 }
 
+// ConnectionPublicConfig contains only fields explicitly marked public by the
+// integration catalog. Secret credentials and generated webhook secrets are
+// never included.
+type ConnectionPublicConfig struct {
+	ConnectionID int64             `json:"id"`
+	Slug         string            `json:"slug"`
+	Fields       map[string]string `json:"fields"`
+	FetchedAt    time.Time         `json:"fetched_at"`
+}
+
+// ConnectionPublicConfigClient is an optional platform capability. Keeping it
+// separate from PlatformClient avoids forcing unrelated app test doubles to
+// implement a method they never use.
+type ConnectionPublicConfigClient interface {
+	GetConnectionPublicConfig(id int64) (*ConnectionPublicConfig, error)
+}
+
+// GetConnectionPublicConfig reads the safe public configuration for a bound
+// integration when the connected platform supports the capability.
+func GetConnectionPublicConfig(client PlatformClient, id int64) (*ConnectionPublicConfig, error) {
+	reader, ok := client.(ConnectionPublicConfigClient)
+	if !ok {
+		return nil, errors.New("platform does not support public integration config")
+	}
+	return reader.GetConnectionPublicConfig(id)
+}
+
 type IntegrationWebhookEnsureRequest struct {
 	ConnectionID int64    `json:"connection_id"`
 	Role         string   `json:"role"`
