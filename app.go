@@ -840,7 +840,8 @@ type PlatformClient interface {
 	// Authorization: ExposeIngress/UnexposeIngress require
 	// platform.ingress.write. ListIngressRoutes requires
 	// platform.ingress.read or .write and is scoped to routes owned by
-	// this install.
+	// this install. Route responses include server-native certificate
+	// status, so apps never need to bind or query a certificate app.
 	ExposeIngress(req IngressExposeRequest) (*IngressRoute, error)
 	UnexposeIngress(hostname string) error
 	ListIngressRoutes() ([]IngressRoute, error)
@@ -930,18 +931,33 @@ type IngressExposeRequest struct {
 // IngressRoute is one server-native hostname exposure owned by an app
 // install.
 type IngressRoute struct {
-	ID             int64  `json:"id"`
-	Hostname       string `json:"hostname"`
-	Target         string `json:"target"`
-	ProjectID      string `json:"project_id"`
-	OwnerInstallID int64  `json:"owner_install_id"`
-	OwnerKind      string `json:"owner_kind"`
-	CertFQDN       string `json:"cert_fqdn,omitempty"`
-	AllowHTTP      bool   `json:"allow_http"`
-	TLSMode        string `json:"tls_mode"`
-	Status         string `json:"status"`
-	CreatedAt      string `json:"created_at"`
-	UpdatedAt      string `json:"updated_at"`
+	ID             int64                     `json:"id"`
+	Hostname       string                    `json:"hostname"`
+	Target         string                    `json:"target"`
+	ProjectID      string                    `json:"project_id"`
+	OwnerInstallID int64                     `json:"owner_install_id"`
+	OwnerKind      string                    `json:"owner_kind"`
+	CertFQDN       string                    `json:"cert_fqdn,omitempty"`
+	AllowHTTP      bool                      `json:"allow_http"`
+	TLSMode        string                    `json:"tls_mode"`
+	Status         string                    `json:"status"`
+	Certificate    *IngressCertificateStatus `json:"certificate,omitempty"`
+	CreatedAt      string                    `json:"created_at"`
+	UpdatedAt      string                    `json:"updated_at"`
+}
+
+// IngressCertificateStatus reports the server-native certificate state
+// for an exposed route. "not_cached" means issuance will be triggered
+// by the first TLS handshake; "live" includes the cached certificate's
+// validity metadata.
+type IngressCertificateStatus struct {
+	FQDN      string `json:"fqdn"`
+	Status    string `json:"status"`
+	NotBefore string `json:"not_before,omitempty"`
+	NotAfter  string `json:"not_after,omitempty"`
+	Serial    string `json:"serial,omitempty"`
+	Issuer    string `json:"issuer,omitempty"`
+	Error     string `json:"error,omitempty"`
 }
 
 // DomainGrant is one DNS zone/prefix the platform is willing to

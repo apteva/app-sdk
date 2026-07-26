@@ -181,6 +181,41 @@ func TestRealtimeLifecycleRequestsCarryAgentIdentity(t *testing.T) {
 	}
 }
 
+func TestListIngressRoutesDecodesNativeCertificateStatus(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet || r.URL.Path != "/api/apps/callback/ingress/routes" {
+			http.NotFound(w, r)
+			return
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"routes": []map[string]any{{
+				"id":         7,
+				"hostname":   "app.example.com",
+				"tls_mode":   "auto",
+				"status":     "active",
+				"project_id": "proj-1",
+				"certificate": map[string]any{
+					"fqdn":      "app.example.com",
+					"status":    "live",
+					"not_after": "2027-01-01T00:00:00Z",
+				},
+			}},
+		})
+	}))
+	defer ts.Close()
+
+	routes, err := newHTTPPlatformClient(ts.URL, "test-token").ListIngressRoutes()
+	if err != nil {
+		t.Fatalf("ListIngressRoutes: %v", err)
+	}
+	if len(routes) != 1 || routes[0].Certificate == nil {
+		t.Fatalf("routes = %+v", routes)
+	}
+	if routes[0].Certificate.Status != "live" || routes[0].Certificate.NotAfter != "2027-01-01T00:00:00Z" {
+		t.Fatalf("certificate = %+v", routes[0].Certificate)
+	}
+}
+
 func TestIntegrationWebhookLifecycleRequests(t *testing.T) {
 	var ensured, verified bool
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
