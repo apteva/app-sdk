@@ -180,15 +180,16 @@ type RuntimeAgentEventRequest struct {
 // agent. The runtime and target agent are selected by the method arguments, so
 // this request never accepts a global agent id.
 type RuntimeRealtimeSpawnRequest struct {
-	ThreadID                   string   `json:"thread_id"`
-	Directive                  string   `json:"directive"`
-	Voice                      string   `json:"voice,omitempty"`
-	Provider                   string   `json:"provider,omitempty"`
-	Tools                      []string `json:"tools,omitempty"`
-	MCP                        []string `json:"mcp,omitempty"`
-	Ephemeral                  bool     `json:"ephemeral,omitempty"`
-	InitialMessage             string   `json:"initial_message,omitempty"`
-	BridgeDisconnectTTLSeconds int      `json:"bridge_disconnect_ttl_seconds,omitempty"`
+	ThreadID                   string                 `json:"thread_id"`
+	Directive                  string                 `json:"directive"`
+	Voice                      string                 `json:"voice,omitempty"`
+	Provider                   string                 `json:"provider,omitempty"`
+	Tools                      []string               `json:"tools,omitempty"`
+	MCP                        []string               `json:"mcp,omitempty"`
+	TurnDetection              *RealtimeTurnDetection `json:"turn_detection,omitempty"`
+	Ephemeral                  bool                   `json:"ephemeral,omitempty"`
+	InitialMessage             string                 `json:"initial_message,omitempty"`
+	BridgeDisconnectTTLSeconds int                    `json:"bridge_disconnect_ttl_seconds,omitempty"`
 }
 
 // RuntimeAgentWaitRequest controls completion detection for one execution.

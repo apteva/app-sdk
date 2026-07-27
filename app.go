@@ -1135,6 +1135,18 @@ type OAuthStartResult struct {
 	ExpiresAt    string `json:"expires_at"`
 }
 
+// RealtimeTurnDetection configures provider-neutral realtime turn taking.
+// Providers map the fields they support to their native session settings.
+// A nil config preserves the provider's default behavior.
+type RealtimeTurnDetection struct {
+	Profile           string `json:"profile,omitempty"`
+	StartSensitivity  string `json:"start_sensitivity,omitempty"`
+	PrefixPaddingMS   int    `json:"prefix_padding_ms,omitempty"`
+	EndSensitivity    string `json:"end_sensitivity,omitempty"`
+	SilenceDurationMS int    `json:"silence_duration_ms,omitempty"`
+	Interruption      string `json:"interruption,omitempty"`
+}
+
 // RealtimeSpawnRequest is the body for PlatformClient.SpawnRealtimeThread.
 // Creates a realtime (voice/audio) thread in core that the app can
 // bridge audio into. The audio bridge runs over a separate
@@ -1166,6 +1178,9 @@ type RealtimeSpawnRequest struct {
 	// MCP — MCP server names the sub-thread should connect to. Empty
 	// = no MCPs (only registry tools the allowlist permits).
 	MCP []string `json:"mcp,omitempty"`
+	// TurnDetection selects a provider-neutral realtime VAD/turn-taking
+	// profile and optional overrides. Nil preserves provider defaults.
+	TurnDetection *RealtimeTurnDetection `json:"turn_detection,omitempty"`
 	// Ephemeral deletes persisted session history when the caller-owned thread
 	// is killed. Use this for temporary conversations such as phone calls.
 	Ephemeral bool `json:"ephemeral,omitempty"`
