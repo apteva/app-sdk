@@ -2,6 +2,7 @@ package sdk
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/url"
 	"strconv"
 	"strings"
@@ -184,8 +185,10 @@ type RuntimeRealtimeSpawnRequest struct {
 	Directive                  string                 `json:"directive"`
 	Voice                      string                 `json:"voice,omitempty"`
 	Provider                   string                 `json:"provider,omitempty"`
+	CapabilityMode             RealtimeCapabilityMode `json:"capability_mode,omitempty"`
 	Tools                      []string               `json:"tools,omitempty"`
 	MCP                        []string               `json:"mcp,omitempty"`
+	CallContext                *RealtimeCallContext   `json:"call_context,omitempty"`
 	TurnDetection              *RealtimeTurnDetection `json:"turn_detection,omitempty"`
 	Ephemeral                  bool                   `json:"ephemeral,omitempty"`
 	InitialMessage             string                 `json:"initial_message,omitempty"`
@@ -554,6 +557,9 @@ func (c *httpPlatformClient) ListRuntimeAgentTelemetry(runtimeID, agentOrAlias s
 }
 
 func (c *httpPlatformClient) SpawnRuntimeRealtimeThread(runtimeID, agentOrAlias string, req RuntimeRealtimeSpawnRequest) (*RealtimeSpawnResult, error) {
+	if err := validateRealtimeCapabilityMode(req.CapabilityMode, req.Tools, req.MCP); err != nil {
+		return nil, fmt.Errorf("SpawnRuntimeRealtimeThread: %w", err)
+	}
 	var out RealtimeSpawnResult
 	if err := c.postWith(c.slowClient, runtimeAgentPath(runtimeID, agentOrAlias)+"/realtime", req, &out); err != nil {
 		return nil, err

@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -1147,6 +1148,61 @@ type RealtimeTurnDetection struct {
 	Interruption      string `json:"interruption,omitempty"`
 }
 
+// RealtimeCapabilityMode makes a realtime thread's app capability surface
+// explicit. It governs Tools and MCP together; Core-owned coordination tools
+// such as send/done/pace remain available according to Core policy.
+type RealtimeCapabilityMode string
+
+const (
+	// RealtimeCapabilitiesInheritAgent asks the platform to resolve the target
+	// agent's spawnable MCP surface. Tools and MCP must otherwise be empty.
+	RealtimeCapabilitiesInheritAgent RealtimeCapabilityMode = "inherit_agent"
+	// RealtimeCapabilitiesExplicit uses exactly the supplied Tools and MCP
+	// lists. Empty lists deliberately mean no app capabilities.
+	RealtimeCapabilitiesExplicit RealtimeCapabilityMode = "explicit"
+	// RealtimeCapabilitiesNone disables all app tools and MCPs.
+	RealtimeCapabilitiesNone RealtimeCapabilityMode = "none"
+)
+
+// RealtimeCallContext is trusted call metadata supplied separately from the
+// model directive. The platform serializes it into a data-only system context;
+// callers must never interpolate these values into Directive themselves.
+type RealtimeCallContext struct {
+	CallID         string `json:"call_id"`
+	Direction      string `json:"direction,omitempty"`
+	Provider       string `json:"provider,omitempty"`
+	ProviderCallID string `json:"provider_call_id,omitempty"`
+	RouteID        string `json:"route_id,omitempty"`
+	FromNumber     string `json:"from_number,omitempty"`
+	ToNumber       string `json:"to_number,omitempty"`
+	ForwardedFrom  string `json:"forwarded_from,omitempty"`
+	IngressPath    string `json:"ingress_path,omitempty"`
+}
+
+// RealtimeAudioTerminalReason is the structured reason a realtime audio
+// bridge ended. It is suitable for both terminal JSON messages and WebSocket
+// close reasons.
+type RealtimeAudioTerminalReason string
+
+const (
+	RealtimeTerminalCallerDone        RealtimeAudioTerminalReason = "caller_done"
+	RealtimeTerminalCarrierError      RealtimeAudioTerminalReason = "carrier_error"
+	RealtimeTerminalAudioDisconnected RealtimeAudioTerminalReason = "audio_disconnected"
+	RealtimeTerminalServerShutdown    RealtimeAudioTerminalReason = "server_shutdown"
+	RealtimeTerminalStopped           RealtimeAudioTerminalReason = "stopped"
+)
+
+const RealtimeAudioTerminalMessageType = "audio.terminal"
+
+// RealtimeAudioTerminalMessage is the terminal control frame contract for an
+// audio bridge. Binary frames remain PCM audio; this message is JSON text.
+type RealtimeAudioTerminalMessage struct {
+	Type      string                      `json:"type"`
+	Reason    RealtimeAudioTerminalReason `json:"reason"`
+	CloseCode int                         `json:"close_code,omitempty"`
+	Detail    string                      `json:"detail,omitempty"`
+}
+
 // RealtimeSpawnRequest is the body for PlatformClient.SpawnRealtimeThread.
 // Creates a realtime (voice/audio) thread in core that the app can
 // bridge audio into. The audio bridge runs over a separate
@@ -1172,12 +1228,18 @@ type RealtimeSpawnRequest struct {
 	// Provider — explicit realtime provider name (e.g. "openai-realtime").
 	// Empty = pool default.
 	Provider string `json:"provider,omitempty"`
-	// Tools — sub-thread tool allowlist. Same conventions as normal
-	// spawn: full prefixed names. Empty = baseline (send/done/etc).
+	// CapabilityMode explicitly controls how Tools and MCP are interpreted.
+	// New callers should always set it. Omission retains the legacy behavior:
+	// omitted Tools+MCP inherit the agent; otherwise they are explicit.
+	CapabilityMode RealtimeCapabilityMode `json:"capability_mode,omitempty"`
+	// Tools — app tool allowlist using full prefixed names. Interpretation is
+	// controlled by CapabilityMode.
 	Tools []string `json:"tools,omitempty"`
-	// MCP — MCP server names the sub-thread should connect to. Empty
-	// = no MCPs (only registry tools the allowlist permits).
+	// MCP — app MCP server names. Interpretation is controlled by
+	// CapabilityMode.
 	MCP []string `json:"mcp,omitempty"`
+	// CallContext carries trusted call metadata separately from Directive.
+	CallContext *RealtimeCallContext `json:"call_context,omitempty"`
 	// TurnDetection selects a provider-neutral realtime VAD/turn-taking
 	// profile and optional overrides. Nil preserves provider defaults.
 	TurnDetection *RealtimeTurnDetection `json:"turn_detection,omitempty"`
@@ -1210,6 +1272,30 @@ type RealtimeSpawnResult struct {
 	// AudioBridgeURL in case the app wants to dial through a
 	// different host (e.g. proxy). Single-use.
 	AudioToken string `json:"audio_token,omitempty"`
+	// EffectiveTools and EffectiveMCP are the live capability surface reported
+	// by Core after spawn. Nil means verification was unavailable; an empty,
+	// non-nil list is an authoritative "none".
+	EffectiveTools []string `json:"effective_tools"`
+	EffectiveMCP   []string `json:"effective_mcp"`
+	// CapabilitiesVerified reports whether the effective lists came from the
+	// live Core thread. When false, both effective lists are nil.
+	CapabilitiesVerified bool `json:"capabilities_verified"`
+}
+
+func validateRealtimeCapabilityMode(mode RealtimeCapabilityMode, tools, mcp []string) error {
+	switch mode {
+	case "":
+		return nil // legacy compatibility; Server resolves nil versus explicit values.
+	case RealtimeCapabilitiesExplicit:
+		return nil
+	case RealtimeCapabilitiesInheritAgent, RealtimeCapabilitiesNone:
+		if len(tools) != 0 || len(mcp) != 0 {
+			return fmt.Errorf("capability_mode %q cannot include tools or mcp", mode)
+		}
+		return nil
+	default:
+		return fmt.Errorf("invalid realtime capability_mode %q", mode)
+	}
 }
 
 // ExecuteResult mirrors apteva-server's response shape for integration

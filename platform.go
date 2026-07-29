@@ -552,6 +552,9 @@ func (c *httpPlatformClient) SpawnRealtimeThread(req RealtimeSpawnRequest) (*Rea
 	if req.Directive == "" {
 		return nil, errors.New("SpawnRealtimeThread: directive required")
 	}
+	if err := validateRealtimeCapabilityMode(req.CapabilityMode, req.Tools, req.MCP); err != nil {
+		return nil, fmt.Errorf("SpawnRealtimeThread: %w", err)
+	}
 	var out RealtimeSpawnResult
 	if err := c.post("/api/apps/callback/threads/spawn-realtime", req, &out); err != nil {
 		return nil, err
