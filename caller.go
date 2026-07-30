@@ -20,6 +20,14 @@ type Caller struct {
 	// AgentID is the calling agent's id. Zero when no caller info was
 	// supplied.
 	AgentID int64
+	// SubjectType and SubjectID identify a delegated end user. They are
+	// populated exclusively from server-owned X-Apteva-Subject-* headers.
+	// Agent calls leave these fields empty.
+	SubjectType      string
+	SubjectID        string
+	SubjectEmail     string
+	OrganizationID   string
+	OrganizationSlug string
 	// Grants is the policy fetched for (this install, this agent).
 	// Nil + non-nil with len 0 are the same — both mean "no rules";
 	// the install's DefaultEffect determines whether that's allow or

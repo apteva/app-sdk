@@ -2,6 +2,8 @@ package sdk
 
 import (
 	"context"
+	"net/http"
+	"net/http/httptest"
 	"testing"
 )
 
@@ -274,5 +276,26 @@ func TestCallerFromContext(t *testing.T) {
 	got := CallerFrom(WithCaller(context.Background(), c))
 	if got == nil || got.AgentID != 7 {
 		t.Fatalf("got %+v", got)
+	}
+}
+
+func TestBuildCallerFromDelegatedSubjectHeaders(t *testing.T) {
+	h := &mcpHandler{ctx: &AppCtx{manifest: &Manifest{}}}
+	req := httptest.NewRequest(http.MethodPost, "/mcp", nil)
+	req.Header.Set("X-Apteva-Subject-Type", "user")
+	req.Header.Set("X-Apteva-Subject-ID", "42")
+	req.Header.Set("X-Apteva-Subject-Email", "member@example.com")
+	req.Header.Set("X-Apteva-Organization-ID", "7")
+	req.Header.Set("X-Apteva-Organization-Slug", "default")
+
+	caller := h.buildCaller(req)
+	if caller == nil {
+		t.Fatal("expected delegated caller")
+	}
+	if caller.AgentID != 0 || caller.SubjectType != "user" || caller.SubjectID != "42" {
+		t.Fatalf("caller = %#v", caller)
+	}
+	if caller.SubjectEmail != "member@example.com" || caller.OrganizationID != "7" || caller.OrganizationSlug != "default" {
+		t.Fatalf("delegated metadata = %#v", caller)
 	}
 }

@@ -650,11 +650,10 @@ func (h *mcpHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// buildCaller materializes a Caller from request headers. Returns nil
-// when neither X-Apteva-Caller-Agent nor X-Apteva-Caller-Instance is
-// present — the SDK treats nil as "no caller info, allow everything"
-// so apps that haven't opted in keep working through platforms that
-// do forward the header.
+// buildCaller materializes a Caller from server-owned request headers.
+// It returns nil only when neither an agent nor delegated-user identity
+// is present. Apps can therefore fail closed for delegated users without
+// trusting caller-supplied tool arguments.
 //
 // X-Apteva-Caller-Agent is the canonical post-rename header name;
 // the legacy X-Apteva-Caller-Instance still works during the
@@ -664,22 +663,35 @@ func (h *mcpHandler) buildCaller(r *http.Request) *Caller {
 	if raw == "" {
 		raw = r.Header.Get("X-Apteva-Caller-Instance")
 	}
-	if raw == "" {
+	subjectType := strings.TrimSpace(r.Header.Get("X-Apteva-Subject-Type"))
+	subjectID := strings.TrimSpace(r.Header.Get("X-Apteva-Subject-ID"))
+	if raw == "" && (subjectType == "" || subjectID == "") {
 		return nil
 	}
-	id, err := strconv.ParseInt(raw, 10, 64)
-	if err != nil || id <= 0 {
-		return nil
-	}
-	resp, _ := h.ctx.platform.GetGrants(id)
-	if resp == nil {
+	var (
+		id   int64
 		resp = &GrantsResponse{DefaultEffect: "allow"}
+	)
+	if raw != "" {
+		parsed, err := strconv.ParseInt(raw, 10, 64)
+		if err != nil || parsed <= 0 {
+			return nil
+		}
+		id = parsed
+		if grants, _ := h.ctx.platform.GetGrants(id); grants != nil {
+			resp = grants
+		}
 	}
 	return &Caller{
-		AgentID:       id,
-		Grants:        resp.Grants,
-		DefaultEffect: resp.DefaultEffect,
-		Resources:     h.ctx.Manifest().Provides.Resources,
+		AgentID:          id,
+		SubjectType:      subjectType,
+		SubjectID:        subjectID,
+		SubjectEmail:     strings.TrimSpace(r.Header.Get("X-Apteva-Subject-Email")),
+		OrganizationID:   strings.TrimSpace(r.Header.Get("X-Apteva-Organization-ID")),
+		OrganizationSlug: strings.TrimSpace(r.Header.Get("X-Apteva-Organization-Slug")),
+		Grants:           resp.Grants,
+		DefaultEffect:    resp.DefaultEffect,
+		Resources:        h.ctx.Manifest().Provides.Resources,
 	}
 }
 
