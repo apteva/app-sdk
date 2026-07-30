@@ -9,6 +9,7 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"net/url"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -207,12 +208,30 @@ func mountAppRoutes(mux *http.ServeMux, app App, ctx *AppCtx) {
 }
 
 // matchesPublicRoute returns true when the request path satisfies any
-// NoAuth route pattern. Mirrors http.ServeMux's matching rules: an
-// exact pattern matches only its exact path; a pattern ending in "/"
-// is a subtree match.
+// NoAuth route pattern. Literal exact/subtree routes retain their historical
+// behavior, while patterns containing wildcards use http.ServeMux itself so
+// routes such as /v1/devices/{id}/test match exactly as they do at dispatch.
 func matchesPublicRoute(path string) bool {
 	for _, p := range publicRoutePaths {
-		if strings.HasSuffix(p, "/") {
+		if p == "" {
+			p = "/"
+		}
+		if !strings.HasPrefix(p, "/") {
+			p = "/" + p
+		}
+		if strings.Contains(p, "{") {
+			matcher := cachedPublicRouteMatcher(p)
+			if matcher == nil {
+				continue
+			}
+			_, matchedPattern := matcher.Handler(&http.Request{
+				Method: http.MethodGet,
+				URL:    &url.URL{Path: path},
+			})
+			if matchedPattern != "" {
+				return true
+			}
+		} else if strings.HasSuffix(p, "/") {
 			if strings.HasPrefix(path, p) {
 				return true
 			}
@@ -221,6 +240,25 @@ func matchesPublicRoute(path string) bool {
 		}
 	}
 	return false
+}
+
+var publicRouteMatcherCache sync.Map
+
+func cachedPublicRouteMatcher(pattern string) (matcher *http.ServeMux) {
+	if cached, ok := publicRouteMatcherCache.Load(pattern); ok {
+		matcher, _ = cached.(*http.ServeMux)
+		return matcher
+	}
+	defer func() {
+		if recover() != nil {
+			matcher = nil
+		}
+	}()
+	compiled := http.NewServeMux()
+	compiled.HandleFunc(pattern, func(http.ResponseWriter, *http.Request) {})
+	actual, _ := publicRouteMatcherCache.LoadOrStore(pattern, compiled)
+	matcher, _ = actual.(*http.ServeMux)
+	return matcher
 }
 
 // mountFrameworkRoutes wires the platform-mandated endpoints every app
