@@ -29,12 +29,15 @@ func TestRuntimeClientCreateUsesAppCallbackAndProjectScope(t *testing.T) {
 	if runtimes == nil {
 		t.Fatal("default AppCtx did not expose RuntimeAPI")
 	}
-	created, err := runtimes.CreateRuntime(RuntimeCreateRequest{ID: "rt-1", MCPServerIDs: []int64{17}})
+	created, err := runtimes.CreateRuntime(RuntimeCreateRequest{ID: "rt-1", MCPServerIDs: []int64{17}, ConnectionBindings: []RuntimeConnectionBinding{{App: "computer", Role: "browserbase", ConnectionID: 6}}})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if got.ProjectID != "proj-1" || created.ProjectID != "proj-1" || len(got.MCPServerIDs) != 1 || got.MCPServerIDs[0] != 17 {
 		t.Fatalf("project scope not forwarded: request=%q response=%q", got.ProjectID, created.ProjectID)
+	}
+	if len(got.ConnectionBindings) != 1 || got.ConnectionBindings[0].ConnectionID != 6 || got.ConnectionBindings[0].App != "computer" || got.ConnectionBindings[0].Role != "browserbase" {
+		t.Fatalf("connection bindings not forwarded: %#v", got.ConnectionBindings)
 	}
 }
 

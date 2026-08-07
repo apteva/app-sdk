@@ -75,6 +75,7 @@ type RuntimeCreateRequest struct {
 	HTTPMocks           []RuntimeHTTPMock           `json:"http_mocks,omitempty"`
 	IntegrationFixtures []RuntimeIntegrationMock    `json:"integration_fixtures,omitempty"`
 	IntegrationBindings []RuntimeIntegrationBinding `json:"integration_bindings,omitempty"`
+	ConnectionBindings  []RuntimeConnectionBinding  `json:"connection_bindings,omitempty"`
 	Subscriptions       []RuntimeSubscription       `json:"subscriptions,omitempty"`
 	SnapshotID          string                      `json:"snapshot_id,omitempty"`
 }
@@ -294,6 +295,15 @@ type RuntimeIntegrationBinding struct {
 	AuthType       string            `json:"auth_type,omitempty"`
 	Credentials    map[string]string `json:"credentials,omitempty"`
 	ExposeToAgents bool              `json:"expose_to_agents,omitempty"`
+}
+
+// RuntimeConnectionBinding binds an existing project connection to one role
+// on a cloned runtime app. Only the connection ID crosses the runtime API;
+// credentials remain in the platform connection store.
+type RuntimeConnectionBinding struct {
+	App          string `json:"app"`
+	Role         string `json:"role"`
+	ConnectionID int64  `json:"connection_id"`
 }
 
 type RuntimeSubscription struct {
