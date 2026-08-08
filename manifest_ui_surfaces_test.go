@@ -101,7 +101,14 @@ provides:
       label: Current work
       description: Live app-owned work.
       suggested: true
-      default_width: 2
+      supported_sizes: [half, full]
+      default_size: full
+      settings_schema:
+        type: object
+        properties:
+          show_recent:
+            type: boolean
+            default: true
 `))
 	if err != nil {
 		t.Fatal(err)
@@ -113,7 +120,10 @@ provides:
 		t.Fatalf("components=%+v", manifest.Provides.UIComponents)
 	}
 	component := manifest.Provides.UIComponents[0]
-	if !component.Suggested || component.DefaultWidth != 2 || component.Label != "Current work" {
+	if !component.Suggested || component.DefaultSize != "full" || len(component.SupportedSizes) != 2 || component.Label != "Current work" {
 		t.Fatalf("component=%+v", component)
+	}
+	if component.SettingsSchema["type"] != "object" {
+		t.Fatalf("settings schema=%+v", component.SettingsSchema)
 	}
 }

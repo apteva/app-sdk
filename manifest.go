@@ -398,13 +398,25 @@ type UIComponent struct {
 	Slots       []string `yaml:"slots" json:"slots"` // allowlist of where it can render
 	Label       string   `yaml:"label,omitempty" json:"label,omitempty"`
 	Description string   `yaml:"description,omitempty" json:"description,omitempty"`
-	// Suggested lets the host enable a contribution in its declared dashboard
-	// slots for a new local layout. Users can still hide or reorder it.
+	// Suggested marks a contribution as a recommended placement. Hosts may use
+	// it as a default in embedded slots; user-managed surfaces such as Home can
+	// still require an explicit operator choice.
 	Suggested bool `yaml:"suggested,omitempty" json:"suggested,omitempty"`
-	// DefaultWidth is a portable grid hint, not a CSS measurement. The host
-	// currently accepts 1 (half row) or 2 (full row) on wide dashboards.
+	// SupportedSizes declares the semantic sizes the host may offer for a
+	// dashboard widget. Current portable values are "half" and "full". The
+	// host remains responsible for mapping those values onto its responsive
+	// layout; apps must adapt their content using the injected widgetSize prop.
+	SupportedSizes []string `yaml:"supported_sizes,omitempty" json:"supported_sizes,omitempty"`
+	DefaultSize    string   `yaml:"default_size,omitempty" json:"default_size,omitempty"`
+	// DefaultWidth is the legacy portable grid hint. New apps should use
+	// SupportedSizes and DefaultSize. It remains readable so existing app
+	// manifests and saved layouts keep rendering without a migration.
 	DefaultWidth int            `yaml:"default_width,omitempty" json:"default_width,omitempty"`
 	PropsSchema  map[string]any `yaml:"props_schema,omitempty" json:"props_schema,omitempty"`
+	// SettingsSchema describes operator-owned, per-widget-instance settings.
+	// It is deliberately separate from PropsSchema, which describes props an
+	// agent supplies when attaching a component to a chat message.
+	SettingsSchema map[string]any `yaml:"settings_schema,omitempty" json:"settings_schema,omitempty"`
 	// PreviewProps lets the dashboard render a live sample of this
 	// component (in the app's install detail panel) so operators can
 	// see what the agent will surface in chat without having to
