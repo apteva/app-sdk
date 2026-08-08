@@ -141,6 +141,20 @@ func (c *httpPlatformClient) SendEvent(instanceID int64, message string) error {
 		map[string]any{"message": message}, nil)
 }
 
+func (c *httpPlatformClient) SendThreadEvent(target ThreadRef, message any) error {
+	if target.AgentID <= 0 {
+		return errors.New("SendThreadEvent: agent_id required")
+	}
+	if strings.TrimSpace(target.ThreadID) == "" {
+		return errors.New("SendThreadEvent: thread_id required")
+	}
+	if message == nil {
+		return errors.New("SendThreadEvent: message required")
+	}
+	return c.post("/api/apps/callback/agents/"+strconv.FormatInt(target.AgentID, 10)+"/event",
+		map[string]any{"message": message, "thread_id": strings.TrimSpace(target.ThreadID)}, nil)
+}
+
 func (c *httpPlatformClient) SendToChannel(channelName, projectID, message string) error {
 	return c.post("/api/apps/callback/channels/send",
 		map[string]any{"channel": channelName, "project_id": projectID, "message": message}, nil)
@@ -562,6 +576,20 @@ func (c *httpPlatformClient) SpawnRealtimeThread(req RealtimeSpawnRequest) (*Rea
 	return &out, nil
 }
 
+func (c *httpPlatformClient) SpawnThread(req ThreadSpawnRequest) (*ThreadSpawnResult, error) {
+	if req.AgentID <= 0 {
+		return nil, errors.New("SpawnThread: agent_id required")
+	}
+	if strings.TrimSpace(req.ThreadID) == "" {
+		return nil, errors.New("SpawnThread: thread_id required")
+	}
+	var out ThreadSpawnResult
+	if err := c.post("/api/apps/callback/threads/spawn", req, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
 // KillThread hits /api/apps/callback/threads/{id} with DELETE.
 // Idempotent — 404 on unknown id is treated as success because the
 // caller's intent (no live thread by this name) is already satisfied.
@@ -676,6 +704,13 @@ func (p *projectScopedClient) GetAgent(id int64) (*PlatformAgent, error) {
 func (p *projectScopedClient) SendEvent(instanceID int64, message string) error {
 	return p.inner.SendEvent(instanceID, message)
 }
+func (p *projectScopedClient) SendThreadEvent(target ThreadRef, message any) error {
+	client, ok := p.inner.(ThreadClient)
+	if !ok {
+		return errors.New("thread API unavailable")
+	}
+	return client.SendThreadEvent(target, message)
+}
 func (p *projectScopedClient) SendToChannel(channelName, projectID, message string) error {
 	if projectID == "" {
 		projectID = p.projectID
@@ -762,6 +797,13 @@ func (p *projectScopedClient) DeleteDNSRecord(req DNSRecordRequest) (*DNSRecordR
 }
 func (p *projectScopedClient) SpawnRealtimeThread(req RealtimeSpawnRequest) (*RealtimeSpawnResult, error) {
 	return p.inner.SpawnRealtimeThread(req)
+}
+func (p *projectScopedClient) SpawnThread(req ThreadSpawnRequest) (*ThreadSpawnResult, error) {
+	client, ok := p.inner.(ThreadClient)
+	if !ok {
+		return nil, errors.New("thread API unavailable")
+	}
+	return client.SpawnThread(req)
 }
 func (p *projectScopedClient) RenewRealtimeAudioBridge(agentID int64, threadID string) (*RealtimeSpawnResult, error) {
 	return p.inner.RenewRealtimeAudioBridge(agentID, threadID)

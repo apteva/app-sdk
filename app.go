@@ -177,6 +177,22 @@ func (c *AppCtx) AppDB() *sql.DB { return c.db }
 // side against the manifest's declared permissions.
 func (c *AppCtx) PlatformAPI() PlatformClient { return c.platform }
 
+// ThreadAPI returns the optional generic thread-addressing client. It stays
+// separate from PlatformClient so extending thread lifecycle operations does
+// not force every existing app test double to change.
+func (c *AppCtx) ThreadAPI() ThreadClient {
+	if c == nil || c.platform == nil {
+		return nil
+	}
+	if scoped, ok := c.platform.(*projectScopedClient); ok {
+		if _, available := scoped.inner.(ThreadClient); !available {
+			return nil
+		}
+	}
+	client, _ := c.platform.(ThreadClient)
+	return client
+}
+
 // RuntimeAPI returns the optional isolated-runtime control client. It is kept
 // separate from PlatformClient because runtime orchestration is a privileged,
 // specialist surface and adding it to PlatformClient would break every app
@@ -888,6 +904,14 @@ type PlatformClient interface {
 	StopEnvironmentAgent(environmentID string, agentOrAlias string) error
 }
 
+// ThreadClient is the generic, optional thread-addressing surface. Thread ids
+// are opaque; applications own any creator/assignee/executor relationships.
+type ThreadClient interface {
+	SendThreadEvent(target ThreadRef, message any) error
+	SpawnThread(req ThreadSpawnRequest) (*ThreadSpawnResult, error)
+	KillThread(agentID int64, threadID string) error
+}
+
 // PlatformInfo is the small "what does the operator have configured at
 // the platform level" bag. Returned from PlatformClient.PlatformInfo
 // and ctx.PlatformInfo(). Add fields here when there's a new
@@ -1399,11 +1423,36 @@ type ConnectionFilter struct {
 }
 
 type PlatformInstance struct {
-	ID        int64  `json:"id"`
-	Name      string `json:"name"`
-	Status    string `json:"status"`
-	Mode      string `json:"mode"`
-	ProjectID string `json:"project_id"`
+	ID              int64  `json:"id"`
+	Name            string `json:"name"`
+	Status          string `json:"status"`
+	Mode            string `json:"mode"`
+	ProjectID       string `json:"project_id"`
+	DefaultThreadID string `json:"default_thread_id,omitempty"`
+}
+
+// ThreadRef is the stable, generic address of a thread inside an agent.
+// It intentionally contains no role/kind field.
+type ThreadRef struct {
+	AgentID  int64  `json:"agent_id"`
+	ThreadID string `json:"thread_id"`
+}
+
+// ThreadSpawnRequest creates an ordinary durable thread through the platform.
+// Apps may persist their own creator/assignee/executor relationships using the
+// returned ThreadRef; those relationships are not platform thread types.
+type ThreadSpawnRequest struct {
+	AgentID         int64    `json:"agent_id"`
+	ThreadID        string   `json:"thread_id"`
+	DirectiveSuffix string   `json:"directive_suffix,omitempty"`
+	Tools           []string `json:"tools,omitempty"`
+	MCP             []string `json:"mcp,omitempty"`
+	Ephemeral       bool     `json:"ephemeral,omitempty"`
+}
+
+type ThreadSpawnResult struct {
+	Status string    `json:"status"`
+	Thread ThreadRef `json:"thread"`
 }
 
 // PlatformAgent is the canonical type name for the entity formerly

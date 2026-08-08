@@ -382,7 +382,10 @@ type Skill struct {
 // Slots:
 //
 //	chat.message_attachment   — under an agent message in chat
-//	dashboard.project_sidebar — small widget on the project home
+//	dashboard.home           — configurable project-home widget
+//	dashboard.agent_card     — compact contribution inside an agent card
+//	dashboard.agent_detail   — contribution on an agent detail page
+//	dashboard.thread_sidebar — contribution beside any opaque agent thread
 //	tool_details.popover      — when an operator clicks a tool row
 //
 // Slot list is enforced by the platform — components can only render
@@ -390,10 +393,18 @@ type Skill struct {
 // anywhere; they're effectively dead code (intentional: forces apps
 // to be explicit about where their UI shows up).
 type UIComponent struct {
-	Name        string         `yaml:"name" json:"name"`   // kebab-case, scoped under the app
-	Entry       string         `yaml:"entry" json:"entry"` // sidecar path: "/ui/FileCard.mjs"
-	Slots       []string       `yaml:"slots" json:"slots"` // allowlist of where it can render
-	PropsSchema map[string]any `yaml:"props_schema,omitempty" json:"props_schema,omitempty"`
+	Name        string   `yaml:"name" json:"name"`   // kebab-case, scoped under the app
+	Entry       string   `yaml:"entry" json:"entry"` // sidecar path: "/ui/FileCard.mjs"
+	Slots       []string `yaml:"slots" json:"slots"` // allowlist of where it can render
+	Label       string   `yaml:"label,omitempty" json:"label,omitempty"`
+	Description string   `yaml:"description,omitempty" json:"description,omitempty"`
+	// Suggested lets the host enable a contribution in its declared dashboard
+	// slots for a new local layout. Users can still hide or reorder it.
+	Suggested bool `yaml:"suggested,omitempty" json:"suggested,omitempty"`
+	// DefaultWidth is a portable grid hint, not a CSS measurement. The host
+	// currently accepts 1 (half row) or 2 (full row) on wide dashboards.
+	DefaultWidth int            `yaml:"default_width,omitempty" json:"default_width,omitempty"`
+	PropsSchema  map[string]any `yaml:"props_schema,omitempty" json:"props_schema,omitempty"`
 	// PreviewProps lets the dashboard render a live sample of this
 	// component (in the app's install detail panel) so operators can
 	// see what the agent will surface in chat without having to
@@ -504,10 +515,11 @@ type PromptFragment struct {
 //	instance.status — thin status strip on the agent detail header
 //	settings.app    — embedded into the Apps tab's per-install detail
 type UIPanel struct {
-	Slot  string `yaml:"slot" json:"slot"`
-	Label string `yaml:"label" json:"label"`
-	Icon  string `yaml:"icon" json:"icon"`
-	Entry string `yaml:"entry" json:"entry"` // sidecar path used as iframe fallback
+	Slot      string `yaml:"slot" json:"slot"`
+	Label     string `yaml:"label" json:"label"`
+	Icon      string `yaml:"icon" json:"icon"`
+	Entry     string `yaml:"entry" json:"entry"`                             // sidecar path used as iframe fallback
+	Suggested bool   `yaml:"suggested,omitempty" json:"suggested,omitempty"` // selected by default until the user customizes this slot
 }
 
 // UIApp declares a standalone, own-origin UI served at a Traefik
@@ -808,11 +820,14 @@ const (
 	PermConnectionsExecute Permission = "platform.connections.execute"
 	PermInstancesRead      Permission = "platform.instances.read"
 	PermInstancesWrite     Permission = "platform.instances.write"
-	PermMCPAttach          Permission = "platform.mcp.attach"
-	PermChannelsSend       Permission = "platform.channels.send"
-	PermAppsCall           Permission = "platform.apps.call"
-	PermFSReadShared       Permission = "fs.read.shared"
-	PermFSWriteShared      Permission = "fs.write.shared"
+	// PermThreadsWrite lets an app target events at, create, and stop opaque
+	// threads belonging to agents in the app install's project scope.
+	PermThreadsWrite  Permission = "platform.threads.write"
+	PermMCPAttach     Permission = "platform.mcp.attach"
+	PermChannelsSend  Permission = "platform.channels.send"
+	PermAppsCall      Permission = "platform.apps.call"
+	PermFSReadShared  Permission = "fs.read.shared"
+	PermFSWriteShared Permission = "fs.write.shared"
 	// PermOAuthStart lets an app initiate an OAuth dance against any
 	// integration in the catalog and store the resulting connection
 	// under its own ownership (created_via=app_install). Bundled with
@@ -884,7 +899,7 @@ func AllPermissions() []Permission {
 	return []Permission{
 		PermDBWriteApp, PermNetEgress,
 		PermConnectionsRead, PermConnectionsWrite, PermConnectionsExecute,
-		PermInstancesRead, PermInstancesWrite,
+		PermInstancesRead, PermInstancesWrite, PermThreadsWrite,
 		PermMCPAttach, PermChannelsSend, PermAppsCall,
 		PermFSReadShared, PermFSWriteShared,
 		PermOAuthStart, PermConnectionsManage,

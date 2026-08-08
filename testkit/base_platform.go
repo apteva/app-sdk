@@ -62,6 +62,9 @@ func (BasePlatformClient) GetAgent(int64) (*sdk.PlatformAgent, error) {
 func (BasePlatformClient) SendEvent(int64, string) error {
 	return ErrNotImplemented
 }
+func (BasePlatformClient) SendThreadEvent(sdk.ThreadRef, any) error {
+	return ErrNotImplemented
+}
 
 func (BasePlatformClient) SendToChannel(string, string, string) error {
 	return ErrNotImplemented
@@ -152,6 +155,9 @@ func (BasePlatformClient) DeleteDNSRecord(sdk.DNSRecordRequest) (*sdk.DNSRecordR
 // this to capture the request and return a synthetic
 // RealtimeSpawnResult with a stub audio bridge URL.
 func (BasePlatformClient) SpawnRealtimeThread(sdk.RealtimeSpawnRequest) (*sdk.RealtimeSpawnResult, error) {
+	return nil, ErrNotImplemented
+}
+func (BasePlatformClient) SpawnThread(sdk.ThreadSpawnRequest) (*sdk.ThreadSpawnResult, error) {
 	return nil, ErrNotImplemented
 }
 

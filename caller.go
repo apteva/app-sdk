@@ -20,6 +20,14 @@ type Caller struct {
 	// AgentID is the calling agent's id. Zero when no caller info was
 	// supplied.
 	AgentID int64
+	// ThreadID is the opaque id of the agent thread that made this MCP
+	// call. The platform does not classify the thread (for example as a
+	// conversation or worker); applications may attach their own meaning to
+	// the id. Empty means the upstream did not provide thread context.
+	ThreadID string
+	// ProjectID is the authenticated project scope selected by the platform
+	// gateway for this call. It is never read from model-supplied arguments.
+	ProjectID string
 	// SubjectType and SubjectID identify a delegated end user. They are
 	// populated exclusively from server-owned X-Apteva-Subject-* headers.
 	// Agent calls leave these fields empty.

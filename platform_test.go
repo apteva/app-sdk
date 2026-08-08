@@ -181,6 +181,52 @@ func TestRealtimeLifecycleRequestsCarryAgentIdentity(t *testing.T) {
 	}
 }
 
+func TestOpaqueThreadRequestsPreserveTargetAndStructuredMessage(t *testing.T) {
+	var sent, spawned bool
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodPost && r.URL.Path == "/api/apps/callback/agents/42/event":
+			var body struct {
+				ThreadID string         `json:"thread_id"`
+				Message  map[string]any `json:"message"`
+			}
+			if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+				t.Fatal(err)
+			}
+			if body.ThreadID != "opaque-a7" || body.Message["type"] != "work.ready" {
+				t.Fatalf("event body=%+v", body)
+			}
+			sent = true
+			w.WriteHeader(http.StatusNoContent)
+		case r.Method == http.MethodPost && r.URL.Path == "/api/apps/callback/threads/spawn":
+			var body ThreadSpawnRequest
+			if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+				t.Fatal(err)
+			}
+			if body.AgentID != 42 || body.ThreadID != "opaque-run-9" || body.DirectiveSuffix != "Do the app-owned work" {
+				t.Fatalf("spawn body=%+v", body)
+			}
+			spawned = true
+			_ = json.NewEncoder(w).Encode(ThreadSpawnResult{Status: "created", Thread: ThreadRef{AgentID: 42, ThreadID: body.ThreadID}})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer ts.Close()
+
+	client := newHTTPPlatformClient(ts.URL, "test-token").(ThreadClient)
+	if err := client.SendThreadEvent(ThreadRef{AgentID: 42, ThreadID: "opaque-a7"}, map[string]any{"type": "work.ready"}); err != nil {
+		t.Fatal(err)
+	}
+	result, err := client.SpawnThread(ThreadSpawnRequest{AgentID: 42, ThreadID: "opaque-run-9", DirectiveSuffix: "Do the app-owned work"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Thread.ThreadID != "opaque-run-9" || !sent || !spawned {
+		t.Fatalf("result=%+v sent=%t spawned=%t", result, sent, spawned)
+	}
+}
+
 func TestListIngressRoutesDecodesNativeCertificateStatus(t *testing.T) {
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet || r.URL.Path != "/api/apps/callback/ingress/routes" {

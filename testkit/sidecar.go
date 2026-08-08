@@ -153,9 +153,26 @@ func (s *Sidecar) Stop() {
 // transport / RPC errors.
 func (s *Sidecar) MCP(tool string, args map[string]any) map[string]any {
 	s.t.Helper()
-	res, err := s.MCPRaw("tools/call", map[string]any{"name": tool, "arguments": args})
+	res, err := s.mcpRaw("tools/call", map[string]any{"name": tool, "arguments": args}, nil)
 	if err != nil {
 		s.t.Fatalf("testkit: MCP %q: %v", tool, err)
+	}
+	return res
+}
+
+// MCPAs calls a tool with the trusted agent/thread/project headers that the
+// platform app gateway normally supplies. It is intended for integration tests
+// of apps whose authorization or ownership depends on sdk.CallerFrom(ctx).
+func (s *Sidecar) MCPAs(tool string, args map[string]any, agentID int64, threadID, projectID string) map[string]any {
+	s.t.Helper()
+	headers := map[string]string{
+		"X-Apteva-Caller-Agent":  strconv.FormatInt(agentID, 10),
+		"X-Apteva-Caller-Thread": threadID,
+		"X-Apteva-Project-ID":    projectID,
+	}
+	res, err := s.mcpRaw("tools/call", map[string]any{"name": tool, "arguments": args}, headers)
+	if err != nil {
+		s.t.Fatalf("testkit: MCPAs %q: %v", tool, err)
 	}
 	return res
 }
@@ -163,11 +180,15 @@ func (s *Sidecar) MCP(tool string, args map[string]any) map[string]any {
 // MCPRaw exposes the JSON-RPC layer for tests that need to assert
 // exact MCP response shapes (errors, non-tools-call methods, etc.).
 func (s *Sidecar) MCPRaw(method string, params map[string]any) (map[string]any, error) {
+	return s.mcpRaw(method, params, nil)
+}
+
+func (s *Sidecar) mcpRaw(method string, params map[string]any, headers map[string]string) (map[string]any, error) {
 	body := map[string]any{
 		"jsonrpc": "2.0", "id": 1, "method": method, "params": params,
 	}
 	raw, _ := json.Marshal(body)
-	resp, err := s.do("POST", "/mcp", bytes.NewReader(raw), "application/json")
+	resp, err := s.doWithHeaders("POST", "/mcp", bytes.NewReader(raw), "application/json", headers)
 	if err != nil {
 		return nil, err
 	}
@@ -257,6 +278,10 @@ func (s *Sidecar) requestJSON(method, path string, body, out any) *Response {
 }
 
 func (s *Sidecar) do(method, path string, body io.Reader, contentType string) (*http.Response, error) {
+	return s.doWithHeaders(method, path, body, contentType, nil)
+}
+
+func (s *Sidecar) doWithHeaders(method, path string, body io.Reader, contentType string, headers map[string]string) (*http.Response, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	_ = ctx
@@ -269,6 +294,11 @@ func (s *Sidecar) do(method, path string, body io.Reader, contentType string) (*
 	}
 	if s.token != "" {
 		req.Header.Set("Authorization", "Bearer "+s.token)
+	}
+	for key, value := range headers {
+		if value != "" {
+			req.Header.Set(key, value)
+		}
 	}
 	return http.DefaultClient.Do(req)
 }

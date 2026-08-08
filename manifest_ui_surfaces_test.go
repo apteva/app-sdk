@@ -81,3 +81,39 @@ func TestManifestWithoutUISurfacesRemainsValid(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestManifestParsesGenericSuggestedDashboardContributions(t *testing.T) {
+	manifest, err := ParseManifest([]byte(`
+schema: apteva-app/v1
+name: work-ledger
+version: 1.0.0
+provides:
+  ui_panels:
+    - slot: project.page
+      label: Work
+      icon: list
+      entry: /ui/WorkPanel.mjs
+      suggested: true
+  ui_components:
+    - name: overview
+      entry: /ui/Overview.mjs
+      slots: [dashboard.home]
+      label: Current work
+      description: Live app-owned work.
+      suggested: true
+      default_width: 2
+`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(manifest.Provides.UIPanels) != 1 || !manifest.Provides.UIPanels[0].Suggested {
+		t.Fatalf("panels=%+v", manifest.Provides.UIPanels)
+	}
+	if len(manifest.Provides.UIComponents) != 1 {
+		t.Fatalf("components=%+v", manifest.Provides.UIComponents)
+	}
+	component := manifest.Provides.UIComponents[0]
+	if !component.Suggested || component.DefaultWidth != 2 || component.Label != "Current work" {
+		t.Fatalf("component=%+v", component)
+	}
+}

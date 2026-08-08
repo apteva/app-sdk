@@ -722,6 +722,8 @@ func (h *mcpHandler) buildCaller(r *http.Request) *Caller {
 	}
 	return &Caller{
 		AgentID:          id,
+		ThreadID:         strings.TrimSpace(r.Header.Get("X-Apteva-Caller-Thread")),
+		ProjectID:        strings.TrimSpace(r.Header.Get("X-Apteva-Project-ID")),
 		SubjectType:      subjectType,
 		SubjectID:        subjectID,
 		SubjectEmail:     strings.TrimSpace(r.Header.Get("X-Apteva-Subject-Email")),
