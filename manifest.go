@@ -616,9 +616,14 @@ type Runtime struct {
 	// tarball* (commonly "." if the tarball was built with
 	// `tar -C dist .`, or "dist" if the tarball preserves the dist/
 	// prefix).
-	StaticDir   string `yaml:"static_dir,omitempty" json:"static_dir,omitempty"`
-	Port        int    `yaml:"port" json:"port"`
-	HealthCheck string `yaml:"health_check" json:"health_check"`
+	StaticDir string `yaml:"static_dir,omitempty" json:"static_dir,omitempty"`
+	Port      int    `yaml:"port" json:"port"`
+	// Ports declares additional non-HTTP listeners exposed by a sidecar.
+	// Runtime.Port remains the primary HTTP port used by the platform proxy;
+	// each entry here is published separately by the runtime/orchestrator.
+	// HostPort 0 asks the runtime to allocate a host port dynamically.
+	Ports       []RuntimePort `yaml:"ports,omitempty" json:"ports,omitempty"`
+	HealthCheck string        `yaml:"health_check" json:"health_check"`
 	// BindHost — interface the sidecar listens on. Default loopback
 	// ("127.0.0.1") because predictable APTEVA_APP_TOKENs (dev-<id>
 	// form) make wider exposure risky for most apps; the platform
@@ -633,6 +638,16 @@ type Runtime struct {
 	Resources ResourceLimits     `yaml:"resources" json:"resources"`
 	Storage   []StorageSpec      `yaml:"storage" json:"storage"`
 	Env       map[string]EnvFrom `yaml:"env" json:"env"`
+}
+
+// RuntimePort describes an additional raw TCP/UDP listener exposed by a
+// sidecar. ContainerPort is the port the app listens on; HostPort is the
+// externally reachable host port (zero means runtime-assigned).
+type RuntimePort struct {
+	Name          string `yaml:"name" json:"name"`
+	ContainerPort int    `yaml:"container_port" json:"container_port"`
+	HostPort      int    `yaml:"host_port,omitempty" json:"host_port,omitempty"`
+	Protocol      string `yaml:"protocol,omitempty" json:"protocol,omitempty"`
 }
 
 // SourceSpec — git-clone-and-build delivery. Paired with kind: source.
@@ -1035,6 +1050,9 @@ func ValidateManifest(m *Manifest) error {
 			return errors.New("runtime.port required when kind=service")
 		}
 	}
+	if err := validateRuntimePorts(m.Runtime); err != nil {
+		return err
+	}
 	if m.UpgradePolicy == "" {
 		m.UpgradePolicy = UpgradeManual
 	}
@@ -1048,6 +1066,55 @@ func ValidateManifest(m *Manifest) error {
 	}
 	if err := validateUISurfaces(m.Provides.UISurfaces); err != nil {
 		return err
+	}
+	return nil
+}
+
+func validateRuntimePorts(runtime Runtime) error {
+	if len(runtime.Ports) == 0 {
+		return nil
+	}
+	if runtime.Kind == "static" {
+		return errors.New("runtime.ports not supported when kind=static")
+	}
+	seenNames := make(map[string]struct{}, len(runtime.Ports))
+	seenPorts := make(map[string]struct{}, len(runtime.Ports))
+	for i := range runtime.Ports {
+		p := &runtime.Ports[i]
+		p.Name = strings.TrimSpace(p.Name)
+		if p.Name == "" {
+			return fmt.Errorf("runtime.ports[%d].name required", i)
+		}
+		for _, r := range p.Name {
+			if !((r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') || r == '-') {
+				return fmt.Errorf("runtime.ports[%d].name %q invalid (use lowercase a-z, 0-9, and -)", i, p.Name)
+			}
+		}
+		if _, ok := seenNames[p.Name]; ok {
+			return fmt.Errorf("runtime.ports name %q declared more than once", p.Name)
+		}
+		seenNames[p.Name] = struct{}{}
+		if p.ContainerPort < 1 || p.ContainerPort > 65535 {
+			return fmt.Errorf("runtime.ports[%d].container_port must be between 1 and 65535", i)
+		}
+		if p.ContainerPort == runtime.Port {
+			return fmt.Errorf("runtime.ports[%d].container_port duplicates primary runtime.port", i)
+		}
+		if p.HostPort < 0 || p.HostPort > 65535 {
+			return fmt.Errorf("runtime.ports[%d].host_port must be between 0 and 65535", i)
+		}
+		p.Protocol = strings.ToLower(strings.TrimSpace(p.Protocol))
+		if p.Protocol == "" {
+			p.Protocol = "tcp"
+		}
+		if p.Protocol != "tcp" && p.Protocol != "udp" {
+			return fmt.Errorf("runtime.ports[%d].protocol must be tcp or udp", i)
+		}
+		key := fmt.Sprintf("%s/%d", p.Protocol, p.ContainerPort)
+		if _, ok := seenPorts[key]; ok {
+			return fmt.Errorf("runtime.ports listener %s declared more than once", key)
+		}
+		seenPorts[key] = struct{}{}
 	}
 	return nil
 }
