@@ -57,10 +57,14 @@ func Run(app App) {
 	// Decode the platform-injected install config.
 	cfg := readConfigEnv()
 
-	// Platform client — speaks to apteva-server using APTEVA_APP_TOKEN.
+	// Platform client and event emitter normally use the same install token as
+	// inbound sidecar authentication. Test/manual-mount environments can split
+	// the two with APTEVA_OUTBOUND_TOKEN while preserving the production
+	// APTEVA_APP_TOKEN default.
+	outboundToken := appOutboundToken()
 	platform := newHTTPPlatformClient(
 		os.Getenv("APTEVA_GATEWAY_URL"),
-		os.Getenv("APTEVA_APP_TOKEN"),
+		outboundToken,
 	)
 
 	cancelCh := make(chan struct{})
@@ -71,7 +75,7 @@ func Run(app App) {
 		platform: platform,
 		logger:   logger,
 		cancel:   cancelCh,
-		emitter:  newHTTPEmitter(os.Getenv("APTEVA_GATEWAY_URL"), os.Getenv("APTEVA_APP_TOKEN"), logger),
+		emitter:  newHTTPEmitter(os.Getenv("APTEVA_GATEWAY_URL"), outboundToken, logger),
 	}
 
 	if err := app.OnMount(ctx); err != nil {
@@ -174,6 +178,13 @@ func Run(app App) {
 		logger.Warn("worker shutdown timed out; exiting")
 	}
 	logger.Info("stopped")
+}
+
+func appOutboundToken() string {
+	if token := os.Getenv("APTEVA_OUTBOUND_TOKEN"); token != "" {
+		return token
+	}
+	return os.Getenv("APTEVA_APP_TOKEN")
 }
 
 // publicRoutePaths collects the patterns of every NoAuth route that
