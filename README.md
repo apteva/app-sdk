@@ -6,6 +6,10 @@ prompt fragments, UI panels, and workers.
 
 Apps depend on this module only — never on `apteva-server` internals.
 
+Apteva apps can also be packaged as additive Agent Plugins 1.0.0 packages.
+See [AGENT_PLUGINS.md](AGENT_PLUGINS.md); existing `apteva.yaml` packages and
+install URLs remain fully supported.
+
 ## Minimal app
 
 ```go
