@@ -474,6 +474,10 @@ type RouteSpec struct {
 type MCPToolSpec struct {
 	Name        string `yaml:"name" json:"name"`
 	Description string `yaml:"description" json:"description"`
+	// Exposure defaults to public. app_only tools remain callable through the
+	// authenticated app-to-app bridge but are excluded from every agent-facing
+	// MCP catalog.
+	Exposure ToolExposure `yaml:"exposure,omitempty" json:"exposure,omitempty"`
 	// Requires names a permission from Provides.ProvidedPermissions.
 	// When set, the SDK gates this tool on the caller's grants
 	// before invoking the handler. Empty = no gate (back-compat).
@@ -1239,6 +1243,11 @@ func validateProvidedPermissions(p *Provides) error {
 	}
 	for i := range p.MCPTools {
 		t := &p.MCPTools[i]
+		switch t.Exposure {
+		case "", ToolExposurePublic, ToolExposureAppOnly:
+		default:
+			return fmt.Errorf("provides.mcp_tools[%q].exposure %q unsupported (public|app_only)", t.Name, t.Exposure)
+		}
 		if t.Requires == "" {
 			continue
 		}

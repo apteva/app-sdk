@@ -545,6 +545,11 @@ type mcpHandler struct {
 	ctx   *AppCtx
 }
 
+// HeaderBoundCallerInstallID is server-owned identity for calls traversing the
+// authenticated app-to-app bridge. Network clients must never be allowed to
+// supply it through an ordinary app MCP proxy.
+const HeaderBoundCallerInstallID = "X-Apteva-Bound-Caller-Install-ID"
+
 func newMCPHandler(app App, ctx *AppCtx) http.Handler {
 	tools := app.MCPTools()
 	sort.Slice(tools, func(i, j int) bool { return tools[i].Name < tools[j].Name })
@@ -603,6 +608,9 @@ func (h *mcpHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	case "tools/list":
 		out := make([]map[string]any, 0, len(h.tools))
 		for _, t := range h.tools {
+			if h.toolExposure(t) == ToolExposureAppOnly {
+				continue
+			}
 			entry := map[string]any{
 				"name": t.Name, "description": t.Description, "inputSchema": t.InputSchema,
 			}
@@ -624,6 +632,12 @@ func (h *mcpHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		if matched == nil {
+			writeMCPErr(w, req.ID, -32601, "tool not found: "+name)
+			return
+		}
+		if h.toolExposure(*matched) == ToolExposureAppOnly && strings.TrimSpace(r.Header.Get(HeaderBoundCallerInstallID)) == "" {
+			// Deliberately use the same response as an unknown tool. Agent and
+			// direct MCP callers must not be able to enumerate private app APIs.
 			writeMCPErr(w, req.ID, -32601, "tool not found: "+name)
 			return
 		}
@@ -757,6 +771,16 @@ func (h *mcpHandler) toolSpec(name string) *MCPToolSpec {
 		}
 	}
 	return nil
+}
+
+func (h *mcpHandler) toolExposure(tool Tool) ToolExposure {
+	if tool.Exposure != "" {
+		return tool.Exposure
+	}
+	if spec := h.toolSpec(tool.Name); spec != nil && spec.Exposure != "" {
+		return spec.Exposure
+	}
+	return ToolExposurePublic
 }
 
 func writeMCP(w http.ResponseWriter, id any, result any) {

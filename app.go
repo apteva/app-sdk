@@ -67,9 +67,24 @@ type Tool struct {
 	Description string
 	InputSchema map[string]any // JSON schema
 	Meta        map[string]any // MCP _meta extension fields
-	Handler     ToolHandler
-	HandlerCtx  ToolHandlerCtx
+	// Exposure controls who may discover and invoke this tool. Empty and
+	// ToolExposurePublic preserve the historical behavior: the tool is listed
+	// to agents and may also be called by a bound app. ToolExposureAppOnly keeps
+	// the tool off the agent MCP surface and accepts calls only through the
+	// platform's authenticated app-to-app bridge.
+	Exposure   ToolExposure
+	Handler    ToolHandler
+	HandlerCtx ToolHandlerCtx
 }
+
+// ToolExposure separates the agent-facing MCP catalog from private app-to-app
+// capabilities without introducing a second RPC mechanism.
+type ToolExposure string
+
+const (
+	ToolExposurePublic  ToolExposure = "public"
+	ToolExposureAppOnly ToolExposure = "app_only"
+)
 
 // ToolHandler is the per-call handler. ctx is the app context (DB,
 // platform client, logger). The map is the raw arguments; return the
