@@ -44,14 +44,14 @@ func Run(app App) {
 	logger.Info("starting", "name", manifest.Name, "version", manifest.Version)
 
 	// Open the app DB and run migrations if a db block is declared.
-	var db *sql.DB
+	var databases *appDatabases
 	if manifest.DB != nil {
 		var err error
-		db, err = openAppDB(manifest.DB, logger)
+		databases, err = openAppDatabases(manifest.DB, logger)
 		if err != nil {
 			log.Fatalf("apteva-app: open db: %v", err)
 		}
-		defer db.Close()
+		defer databases.Close()
 	}
 
 	// Decode the platform-injected install config.
@@ -68,10 +68,19 @@ func Run(app App) {
 	)
 
 	cancelCh := make(chan struct{})
+	var db, readDB *sql.DB
+	var dbState *appDBState
+	if databases != nil {
+		db = databases.writer
+		readDB = databases.reader
+		dbState = databases.state
+	}
 	ctx := &AppCtx{
 		manifest: &manifest,
 		cfg:      cfg,
 		db:       db,
+		readDB:   readDB,
+		dbState:  dbState,
 		platform: platform,
 		logger:   logger,
 		cancel:   cancelCh,
@@ -818,21 +827,33 @@ func encodeJSONNoHTMLEscape(w io.Writer, v any) error {
 // the path can't be stat'd (file gone temporarily during an atomic
 // rename); the next tick will catch the replacement.
 func watchDBInode(path string, logger Logger) {
+	watchDBInodeChanges(path, 30*time.Second, logger, nil, nil)
+}
+
+func watchDBInodeChanges(path string, interval time.Duration, logger Logger, stop <-chan struct{}, onChange func()) {
 	original, ok := statInode(path)
 	if !ok {
 		return
 	}
-	tick := time.NewTicker(30 * time.Second)
+	tick := time.NewTicker(interval)
 	defer tick.Stop()
-	for range tick.C {
+	for {
+		select {
+		case <-stop:
+			return
+		case <-tick.C:
+		}
 		current, ok := statInode(path)
 		if !ok {
 			continue
 		}
 		if current != original {
 			if logger != nil {
-				logger.Warn("DB file inode changed underneath running sidecar — connection pool will recycle within SetConnMaxLifetime; check for backup restore / deploy script / volume remount that replaced the file",
+				logger.Warn("DB file inode changed underneath running sidecar; check for backup restore / deploy script / volume remount that replaced the file",
 					"path", path, "original_inode", original, "current_inode", current)
+			}
+			if onChange != nil {
+				onChange()
 			}
 			// Update so we only log once per swap (next swap re-fires).
 			original = current
@@ -842,7 +863,151 @@ func watchDBInode(path string, logger Logger) {
 
 // --- DB open + migrations ---------------------------------------------------
 
+const defaultSQLiteReadConns = 4
+
+type appDatabases struct {
+	writer    *sql.DB
+	reader    *sql.DB
+	state     *appDBState
+	stopWatch chan struct{}
+	closeOnce sync.Once
+}
+
+func (d *appDatabases) Close() error {
+	if d == nil {
+		return nil
+	}
+	var first error
+	d.closeOnce.Do(func() {
+		close(d.stopWatch)
+		if d.reader != nil {
+			first = d.reader.Close()
+		}
+		if d.writer != nil {
+			if err := d.writer.Close(); first == nil {
+				first = err
+			}
+		}
+	})
+	return first
+}
+
+func openAppDatabases(cfg *DBConfig, logger Logger) (*appDatabases, error) {
+	writer, err := openAppWriterDB(cfg, logger, false)
+	if err != nil {
+		return nil, err
+	}
+	path := appDBPath(cfg)
+	reader, err := openAppReadDB(path, defaultSQLiteReadConns)
+	if err != nil {
+		_ = writer.Close()
+		return nil, err
+	}
+	state := &appDBState{}
+	state.generation.Store(1)
+	dbs := &appDatabases{
+		writer: writer, reader: reader, state: state, stopWatch: make(chan struct{}),
+	}
+	go watchDBInodeChanges(path, 5*time.Second, logger, dbs.stopWatch, dbs.handleReplacement)
+	return dbs, nil
+}
+
+func (d *appDatabases) handleReplacement() {
+	if d == nil {
+		return
+	}
+	d.state.generation.Add(1)
+	forceRecycleDBPool(d.writer, 1)
+	forceRecycleDBPool(d.reader, defaultSQLiteReadConns)
+}
+
+func appDBPath(cfg *DBConfig) string {
+	if v := os.Getenv("DB_PATH"); v != "" {
+		return v
+	}
+	return cfg.Path
+}
+
+func openAppReadDB(path string, maxConns int) (*sql.DB, error) {
+	if maxConns < 1 {
+		maxConns = defaultSQLiteReadConns
+	}
+	db, err := sql.Open("sqlite", "file:"+path+
+		"?mode=ro"+
+		"&_pragma=query_only(on)"+
+		"&_pragma=busy_timeout(30000)"+
+		"&_pragma=foreign_keys(on)")
+	if err != nil {
+		return nil, err
+	}
+	db.SetMaxOpenConns(maxConns)
+	db.SetMaxIdleConns(maxConns)
+	db.SetConnMaxLifetime(5 * time.Minute)
+	db.SetConnMaxIdleTime(2 * time.Minute)
+	if err := db.Ping(); err != nil {
+		_ = db.Close()
+		return nil, fmt.Errorf("open read-only app db %s: %w", path, err)
+	}
+	var queryOnly, busyTimeout int
+	if err := db.QueryRow("PRAGMA query_only").Scan(&queryOnly); err != nil {
+		_ = db.Close()
+		return nil, fmt.Errorf("verify read-only app db %s: %w", path, err)
+	}
+	if err := db.QueryRow("PRAGMA busy_timeout").Scan(&busyTimeout); err != nil {
+		_ = db.Close()
+		return nil, fmt.Errorf("verify read-only app db %s: %w", path, err)
+	}
+	if queryOnly != 1 || busyTimeout != 30000 {
+		_ = db.Close()
+		return nil, fmt.Errorf("verify read-only app db %s: query_only=%d busy_timeout=%d", path, queryOnly, busyTimeout)
+	}
+	return db, nil
+}
+
+func forceRecycleDBPool(db *sql.DB, maxIdle int) {
+	if db == nil {
+		return
+	}
+	// Closing every idle connection is immediate. Active connections are
+	// discarded as soon as they return because their lifetime is now one
+	// nanosecond. Once the old pool fully drains, restore the normal lifetime
+	// and idle capacity so a live restore does not cause permanent churn.
+	db.SetMaxIdleConns(0)
+	db.SetConnMaxLifetime(time.Nanosecond)
+	reset := func() {
+		db.SetConnMaxLifetime(5 * time.Minute)
+		db.SetMaxIdleConns(maxIdle)
+	}
+	if db.Stats().InUse == 0 {
+		reset()
+		return
+	}
+	go func() {
+		ticker := time.NewTicker(10 * time.Millisecond)
+		defer ticker.Stop()
+		timeout := time.NewTimer(30 * time.Second)
+		defer timeout.Stop()
+		for {
+			select {
+			case <-ticker.C:
+				if db.Stats().InUse == 0 {
+					reset()
+					return
+				}
+			case <-timeout.C:
+				// Keep aggressive recycling if a continuously used stale
+				// connection never drains; correctness wins over reuse.
+				return
+			}
+		}
+	}()
+}
+
 func openAppDB(cfg *DBConfig, logger Logger) (*sql.DB, error) {
+	return openAppWriterDB(cfg, logger, true)
+}
+
+func openAppWriterDB(cfg *DBConfig, logger Logger, startWatcher bool) (*sql.DB, error) {
 	if cfg.Driver != "sqlite" && cfg.Driver != "" {
 		return nil, fmt.Errorf("only sqlite supported in this SDK; got %q", cfg.Driver)
 	}
@@ -850,10 +1015,7 @@ func openAppDB(cfg *DBConfig, logger Logger) (*sql.DB, error) {
 	// it per-install to avoid two installs of the same app writing
 	// to the manifest's hard-coded path. The testkit also relies on
 	// this so spawned sidecars in tests don't share /data/<app>.db.
-	path := cfg.Path
-	if v := os.Getenv("DB_PATH"); v != "" {
-		path = v
-	}
+	path := appDBPath(cfg)
 	dir := filepath.Dir(path)
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		return nil, err
@@ -936,7 +1098,9 @@ func openAppDB(cfg *DBConfig, logger Logger) (*sql.DB, error) {
 	// signal so operators can correlate the swap. We log a critical
 	// warning rather than crashing so in-flight requests can complete;
 	// the pool recycles itself within the cap window.
-	go watchDBInode(path, logger)
+	if startWatcher {
+		go watchDBInode(path, logger)
+	}
 	migrationsDir := cfg.Migrations
 	// APTEVA_MIGRATIONS_DIR overrides the manifest path the same way
 	// DB_PATH overrides cfg.Path. The platform points it at the absolute

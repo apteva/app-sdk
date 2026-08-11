@@ -130,7 +130,14 @@ Declare a `db:` block in the manifest and the framework will:
 
 1. Open the SQLite file at `db.path` inside your app's mounted volume
 2. Run `migrations/*.sql` in lexical order, tracked in a `_migrations` table
-3. Hand you the `*sql.DB` via `ctx.AppDB()`
+3. Hand you a serialized writer via `ctx.AppDB()`
+4. Hand you a four-connection, query-only pool via `ctx.AppReadDB()`
+
+SQLite permits one writer but concurrent WAL readers. Use `AppDB()` for
+transactions and mutations, and `AppReadDB()` for operations that are
+guaranteed not to write. The SDK recycles both pools after a live database
+replacement; metadata caches can watch `ctx.AppDBGeneration()` for
+invalidation.
 
 Cross-app DB access is forbidden. Apps that need to share state expose
 MCP tools or HTTP routes; consumers go through them.

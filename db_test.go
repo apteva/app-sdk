@@ -11,6 +11,7 @@ package sdk
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
 	"os"
@@ -23,6 +24,128 @@ import (
 
 	_ "modernc.org/sqlite"
 )
+
+func TestOpenAppDatabases_SplitsSerializedWritesFromConcurrentReads(t *testing.T) {
+	dir := t.TempDir()
+	cfg := &DBConfig{Driver: "sqlite", Path: filepath.Join(dir, "split.db")}
+	dbs, err := openAppDatabases(cfg, &captureLogger{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer dbs.Close()
+
+	if got := dbs.writer.Stats().MaxOpenConnections; got != 1 {
+		t.Fatalf("writer MaxOpenConnections=%d, want 1", got)
+	}
+	if got := dbs.reader.Stats().MaxOpenConnections; got != defaultSQLiteReadConns {
+		t.Fatalf("reader MaxOpenConnections=%d, want %d", got, defaultSQLiteReadConns)
+	}
+	if _, err := dbs.writer.Exec(`CREATE TABLE items (id INTEGER PRIMARY KEY, value TEXT); INSERT INTO items VALUES (1, 'visible')`); err != nil {
+		t.Fatalf("writer setup: %v", err)
+	}
+	var value string
+	if err := dbs.reader.QueryRow(`SELECT value FROM items WHERE id = 1`).Scan(&value); err != nil {
+		t.Fatalf("reader query: %v", err)
+	}
+	if value != "visible" {
+		t.Fatalf("reader value=%q, want visible", value)
+	}
+	if _, err := dbs.reader.Exec(`INSERT INTO items VALUES (2, 'forbidden')`); err == nil {
+		t.Fatal("read pool accepted a write")
+	}
+
+	// Occupy the sole writer connection. A writer query must queue, while a
+	// read through the independent pool remains available.
+	heldWriter, err := dbs.writer.Conn(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer heldWriter.Close()
+	blockedCtx, blockedCancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer blockedCancel()
+	blocked := make(chan error, 1)
+	go func() {
+		blocked <- dbs.writer.QueryRowContext(blockedCtx, `SELECT COUNT(*) FROM items`).Scan(new(int))
+	}()
+	if err := dbs.reader.QueryRow(`SELECT COUNT(*) FROM items`).Scan(new(int)); err != nil {
+		t.Fatalf("read queued behind occupied writer: %v", err)
+	}
+	if err := <-blocked; !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("writer queue error=%v, want deadline exceeded", err)
+	}
+
+	// Four read connections can be checked out simultaneously. This pins the
+	// pool contract without relying on timing-sensitive SQL sleep functions.
+	conns := make([]*sql.Conn, 0, defaultSQLiteReadConns)
+	for i := 0; i < defaultSQLiteReadConns; i++ {
+		conn, err := dbs.reader.Conn(context.Background())
+		if err != nil {
+			t.Fatalf("reader conn %d: %v", i, err)
+		}
+		conns = append(conns, conn)
+	}
+	for _, conn := range conns {
+		if err := conn.Close(); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+func TestOpenAppDatabases_ReplacementRecyclesBothPoolsAndAdvancesGeneration(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "replace.db")
+	cfg := &DBConfig{Driver: "sqlite", Path: path}
+	dbs, err := openAppDatabases(cfg, &captureLogger{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer dbs.Close()
+	if _, err := dbs.writer.Exec(`CREATE TABLE marker (value TEXT); INSERT INTO marker VALUES ('old')`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := dbs.writer.Exec(`PRAGMA wal_checkpoint(TRUNCATE)`); err != nil {
+		t.Fatal(err)
+	}
+	if err := dbs.reader.QueryRow(`SELECT value FROM marker`).Scan(new(string)); err != nil {
+		t.Fatal(err)
+	}
+
+	replacement := path + ".replacement"
+	repl, err := sql.Open("sqlite", "file:"+replacement+"?_pragma=journal_mode(WAL)")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := repl.Exec(`CREATE TABLE marker (value TEXT); INSERT INTO marker VALUES ('restored')`); err != nil {
+		repl.Close()
+		t.Fatal(err)
+	}
+	if _, err := repl.Exec(`PRAGMA wal_checkpoint(TRUNCATE)`); err != nil {
+		repl.Close()
+		t.Fatal(err)
+	}
+	if err := repl.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Rename(replacement, path); err != nil {
+		t.Fatal(err)
+	}
+
+	before := dbs.state.generation.Load()
+	dbs.handleReplacement()
+	if got := dbs.state.generation.Load(); got != before+1 {
+		t.Fatalf("generation=%d, want %d", got, before+1)
+	}
+	var value string
+	if err := dbs.reader.QueryRow(`SELECT value FROM marker`).Scan(&value); err != nil {
+		t.Fatalf("reader after replacement: %v", err)
+	}
+	if value != "restored" {
+		t.Fatalf("reader saw %q after replacement, want restored", value)
+	}
+	if _, err := dbs.writer.Exec(`INSERT INTO marker VALUES ('new-write')`); err != nil {
+		t.Fatalf("writer after replacement: %v", err)
+	}
+}
 
 // captureLogger records Warn calls so the inode-watchdog test can
 // assert the warning fired without staring at stdout.

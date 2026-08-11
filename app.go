@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"sync/atomic"
 	"time"
 )
 
@@ -174,6 +175,8 @@ type AppCtx struct {
 	manifest       *Manifest
 	cfg            Config
 	db             *sql.DB
+	readDB         *sql.DB
+	dbState        *appDBState
 	platform       PlatformClient
 	logger         Logger
 	cancel         <-chan struct{}
@@ -181,10 +184,39 @@ type AppCtx struct {
 	currentProject string // "" until WithProject is called or env seeds it
 }
 
+type appDBState struct {
+	generation atomic.Uint64
+}
+
 // AppDB is the app's private database handle, opened by the framework
 // after migrations ran. Always non-nil if the manifest declares a db
 // block; otherwise nil — the app should null-check.
 func (c *AppCtx) AppDB() *sql.DB { return c.db }
+
+// AppReadDB returns the app's read-only database pool. Production SQLite
+// apps get a separate pool so reads can run concurrently without waiting for
+// AppDB's serialized writer connection. Hand-built test contexts and apps
+// without a separate read pool fall back to AppDB for compatibility.
+func (c *AppCtx) AppReadDB() *sql.DB {
+	if c == nil {
+		return nil
+	}
+	if c.readDB != nil {
+		return c.readDB
+	}
+	return c.db
+}
+
+// AppDBGeneration changes whenever the SDK detects that the database file
+// was replaced underneath the sidecar. Apps that cache database-derived
+// metadata can compare this value and invalidate stale entries after a live
+// restore. Zero means no managed database lifecycle is available.
+func (c *AppCtx) AppDBGeneration() uint64 {
+	if c == nil || c.dbState == nil {
+		return 0
+	}
+	return c.dbState.generation.Load()
+}
 
 // PlatformAPI returns a typed client for the small set of platform
 // operations apps may legitimately need (read connection, send to
@@ -653,14 +685,35 @@ func NewAppCtxForTest(manifest *Manifest, db *sql.DB, cfg Config, platform Platf
 	if logger == nil {
 		logger = silentLogger{}
 	}
+	state := &appDBState{}
+	state.generation.Store(1)
 	return &AppCtx{
 		manifest: manifest,
 		cfg:      cfg,
 		db:       db,
+		readDB:   db,
+		dbState:  state,
 		platform: platform,
 		logger:   logger,
 		cancel:   make(chan struct{}),
 	}
+}
+
+// SetAppReadDBForTest replaces a test context's read pool and returns a
+// function that simulates database replacement by advancing its generation.
+// Production apps must not call this; the SDK owns both handles in Run.
+func (c *AppCtx) SetAppReadDBForTest(readDB *sql.DB) func() {
+	if c == nil {
+		return func() {}
+	}
+	c.readDB = readDB
+	if c.dbState == nil {
+		c.dbState = &appDBState{}
+		c.dbState.generation.Store(1)
+	} else {
+		c.dbState.generation.Add(1)
+	}
+	return func() { c.dbState.generation.Add(1) }
 }
 
 // silentLogger drops every message — used as the test default so
