@@ -101,6 +101,8 @@ provides:
       label: Current work
       description: Live app-owned work.
       suggested: true
+      visibility: project
+      refresh_topics: [task.created, task.updated]
       supported_sizes: [half, full]
       default_size: full
       settings_schema:
@@ -120,10 +122,38 @@ provides:
 		t.Fatalf("components=%+v", manifest.Provides.UIComponents)
 	}
 	component := manifest.Provides.UIComponents[0]
-	if !component.Suggested || component.DefaultSize != "full" || len(component.SupportedSizes) != 2 || component.Label != "Current work" {
+	if !component.Suggested || component.Visibility != UIComponentVisibilityProject || component.DefaultSize != "full" || len(component.SupportedSizes) != 2 || component.Label != "Current work" {
 		t.Fatalf("component=%+v", component)
+	}
+	if len(component.RefreshTopics) != 2 || component.RefreshTopics[0] != "task.created" {
+		t.Fatalf("refresh topics=%+v", component.RefreshTopics)
 	}
 	if component.SettingsSchema["type"] != "object" {
 		t.Fatalf("settings schema=%+v", component.SettingsSchema)
+	}
+}
+
+func TestManifestRejectsInvalidUIComponentPlacement(t *testing.T) {
+	for name, fragment := range map[string]string{
+		"unknown slot":              `slots: [dashboard.unknown]`,
+		"unknown visibility":        "slots: [dashboard.home]\n      visibility: everyone",
+		"unsupported size":          "slots: [dashboard.home]\n      supported_sizes: [tiny]",
+		"default outside supported": "slots: [dashboard.home]\n      supported_sizes: [half]\n      default_size: full",
+	} {
+		t.Run(name, func(t *testing.T) {
+			_, err := ParseManifest([]byte(`
+schema: apteva-app/v1
+name: widget-test
+version: 1.0.0
+provides:
+  ui_components:
+    - name: overview
+      entry: /ui/Overview.mjs
+      ` + fragment + `
+`))
+			if err == nil {
+				t.Fatal("expected validation error")
+			}
+		})
 	}
 }

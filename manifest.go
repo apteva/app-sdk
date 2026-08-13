@@ -25,6 +25,16 @@ const SchemaCurrent = "apteva-app/v1"
 const (
 	NativeSurfaceSchemaCurrent    = "apteva-native-surface/v1"
 	UISurfaceSlotMobileProjectApp = "mobile.project_app"
+
+	UIComponentSlotChatMessageAttachment  = "chat.message_attachment"
+	UIComponentSlotDashboardHome          = "dashboard.home"
+	UIComponentSlotDashboardAgentCard     = "dashboard.agent_card"
+	UIComponentSlotDashboardAgentDetail   = "dashboard.agent_detail"
+	UIComponentSlotDashboardThreadSidebar = "dashboard.thread_sidebar"
+	UIComponentSlotToolDetailsPopover     = "tool_details.popover"
+
+	UIComponentVisibilityAttached = "attached"
+	UIComponentVisibilityProject  = "project"
 )
 
 // Manifest is the single source of truth for an app — identity,
@@ -402,6 +412,14 @@ type UIComponent struct {
 	// it as a default in embedded slots; user-managed surfaces such as Home can
 	// still require an explicit operator choice.
 	Suggested bool `yaml:"suggested,omitempty" json:"suggested,omitempty"`
+	// Visibility controls contextual eligibility on agent and thread surfaces.
+	// "attached" (the default for contextual surfaces) requires the app to be
+	// attached to the target agent. "project" makes the contribution available
+	// anywhere in the project. Home contributions are project-visible by nature.
+	Visibility string `yaml:"visibility,omitempty" json:"visibility,omitempty"`
+	// RefreshTopics narrows live refreshes to the declared app-bus topics. Empty
+	// preserves the legacy behaviour of refreshing after any event from the app.
+	RefreshTopics []string `yaml:"refresh_topics,omitempty" json:"refresh_topics,omitempty"`
 	// SupportedSizes declares the semantic sizes the host may offer for a
 	// dashboard widget. Current portable values are "half" and "full". The
 	// host remains responsible for mapping those values onto its responsive
@@ -1070,6 +1088,77 @@ func ValidateManifest(m *Manifest) error {
 	}
 	if err := validateUISurfaces(m.Provides.UISurfaces); err != nil {
 		return err
+	}
+	if err := validateUIComponents(m.Provides.UIComponents); err != nil {
+		return err
+	}
+	return nil
+}
+
+func validateUIComponents(components []UIComponent) error {
+	knownSlots := map[string]bool{
+		UIComponentSlotChatMessageAttachment:  true,
+		UIComponentSlotDashboardHome:          true,
+		UIComponentSlotDashboardAgentCard:     true,
+		UIComponentSlotDashboardAgentDetail:   true,
+		UIComponentSlotDashboardThreadSidebar: true,
+		UIComponentSlotToolDetailsPopover:     true,
+	}
+	seen := make(map[string]bool, len(components))
+	for i := range components {
+		component := &components[i]
+		prefix := fmt.Sprintf("provides.ui_components[%d]", i)
+		if !isSlug(component.Name) {
+			return fmt.Errorf("%s.name must be a lowercase slug (a-z0-9-)", prefix)
+		}
+		if seen[component.Name] {
+			return fmt.Errorf("provides.ui_components: duplicate name %q", component.Name)
+		}
+		seen[component.Name] = true
+		if strings.TrimSpace(component.Entry) == "" || hasPathTraversal(component.Entry) {
+			return fmt.Errorf("%s.entry must be a traversal-free path", prefix)
+		}
+		if len(component.Slots) == 0 {
+			return fmt.Errorf("%s.slots requires at least one slot", prefix)
+		}
+		slotSeen := map[string]bool{}
+		for _, slot := range component.Slots {
+			if !knownSlots[slot] {
+				return fmt.Errorf("%s.slots contains unsupported slot %q", prefix, slot)
+			}
+			if slotSeen[slot] {
+				return fmt.Errorf("%s.slots contains duplicate slot %q", prefix, slot)
+			}
+			slotSeen[slot] = true
+		}
+		switch component.Visibility {
+		case "", UIComponentVisibilityAttached, UIComponentVisibilityProject:
+		default:
+			return fmt.Errorf("%s.visibility %q unsupported (attached|project)", prefix, component.Visibility)
+		}
+		sizeSeen := map[string]bool{}
+		for _, size := range component.SupportedSizes {
+			if size != "half" && size != "full" {
+				return fmt.Errorf("%s.supported_sizes contains unsupported size %q", prefix, size)
+			}
+			if sizeSeen[size] {
+				return fmt.Errorf("%s.supported_sizes contains duplicate size %q", prefix, size)
+			}
+			sizeSeen[size] = true
+		}
+		if component.DefaultSize != "" {
+			if component.DefaultSize != "half" && component.DefaultSize != "full" {
+				return fmt.Errorf("%s.default_size %q unsupported", prefix, component.DefaultSize)
+			}
+			if len(sizeSeen) > 0 && !sizeSeen[component.DefaultSize] {
+				return fmt.Errorf("%s.default_size %q is not in supported_sizes", prefix, component.DefaultSize)
+			}
+		}
+		for _, topic := range component.RefreshTopics {
+			if strings.TrimSpace(topic) == "" {
+				return fmt.Errorf("%s.refresh_topics contains an empty topic", prefix)
+			}
+		}
 	}
 	return nil
 }
