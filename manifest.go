@@ -435,6 +435,12 @@ type UIComponent struct {
 	// It is deliberately separate from PropsSchema, which describes props an
 	// agent supplies when attaching a component to a chat message.
 	SettingsSchema map[string]any `yaml:"settings_schema,omitempty" json:"settings_schema,omitempty"`
+	// Native is the declarative renderer used by native clients for this same
+	// component identity. The web dashboard continues to load Entry, while
+	// iOS and Android load Native.Entry and render it without executing remote
+	// code. Keeping both renderers on one UIComponent means layout order, size,
+	// and per-instance settings remain portable across every host.
+	Native *NativeUIRenderer `yaml:"native,omitempty" json:"native,omitempty"`
 	// PreviewProps lets the dashboard render a live sample of this
 	// component (in the app's install detail panel) so operators can
 	// see what the agent will surface in chat without having to
@@ -451,6 +457,14 @@ type UIComponent struct {
 	// will render a skeleton or tombstone — also informative, just
 	// less polished.
 	PreviewProps map[string]any `yaml:"preview_props,omitempty" json:"preview_props,omitempty"`
+}
+
+// NativeUIRenderer points at an app-owned declarative native-surface document.
+// Entry is resolved through the authenticated app proxy and therefore must be
+// an app-relative JSON path under /ui/.
+type NativeUIRenderer struct {
+	Schema string `yaml:"schema" json:"schema"`
+	Entry  string `yaml:"entry" json:"entry"`
 }
 
 // UISurface advertises a portable, declarative native UI document served by
@@ -1159,6 +1173,17 @@ func validateUIComponents(components []UIComponent) error {
 				return fmt.Errorf("%s.refresh_topics contains an empty topic", prefix)
 			}
 		}
+		if component.Native != nil {
+			if !slotSeen[UIComponentSlotDashboardHome] {
+				return fmt.Errorf("%s.native is currently supported only for dashboard.home components", prefix)
+			}
+			if component.Native.Schema != NativeSurfaceSchemaCurrent {
+				return fmt.Errorf("%s.native.schema %q unsupported (expected %s)", prefix, component.Native.Schema, NativeSurfaceSchemaCurrent)
+			}
+			if !validNativeSurfaceEntry(component.Native.Entry) {
+				return fmt.Errorf("%s.native.entry must be a traversal-free JSON path under /ui/", prefix)
+			}
+		}
 	}
 	return nil
 }
@@ -1232,11 +1257,7 @@ func validateUISurfaces(surfaces []UISurface) error {
 		if surface.Schema != NativeSurfaceSchemaCurrent {
 			return fmt.Errorf("%s.schema %q unsupported (expected %s)", prefix, surface.Schema, NativeSurfaceSchemaCurrent)
 		}
-		if !strings.HasPrefix(surface.Entry, "/ui/") ||
-			!strings.HasSuffix(surface.Entry, ".json") ||
-			strings.Contains(surface.Entry, "?") ||
-			strings.Contains(surface.Entry, "#") ||
-			hasPathTraversal(surface.Entry) {
+		if !validNativeSurfaceEntry(surface.Entry) {
 			return fmt.Errorf("%s.entry must be a traversal-free JSON path under /ui/", prefix)
 		}
 		if len(surface.Slots) == 0 {
@@ -1254,6 +1275,14 @@ func validateUISurfaces(surfaces []UISurface) error {
 		}
 	}
 	return nil
+}
+
+func validNativeSurfaceEntry(entry string) bool {
+	return strings.HasPrefix(entry, "/ui/") &&
+		strings.HasSuffix(entry, ".json") &&
+		!strings.Contains(entry, "?") &&
+		!strings.Contains(entry, "#") &&
+		!hasPathTraversal(entry)
 }
 
 func hasPathTraversal(value string) bool {

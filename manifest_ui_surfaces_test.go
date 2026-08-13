@@ -157,3 +157,59 @@ provides:
 		})
 	}
 }
+
+func TestManifestParsesNativeDashboardRenderer(t *testing.T) {
+	manifest, err := ParseManifest([]byte(`
+schema: apteva-app/v1
+name: work-ledger
+version: 1.0.0
+provides:
+  ui_components:
+    - name: overview
+      entry: /ui/Overview.mjs
+      slots: [dashboard.home]
+      native:
+        schema: apteva-native-surface/v1
+        entry: /ui/surfaces/overview.json
+`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	native := manifest.Provides.UIComponents[0].Native
+	if native == nil || native.Schema != NativeSurfaceSchemaCurrent || native.Entry != "/ui/surfaces/overview.json" {
+		t.Fatalf("native renderer=%+v", native)
+	}
+	encoded, err := json.Marshal(manifest)
+	if err != nil || !strings.Contains(string(encoded), `"native"`) {
+		t.Fatalf("JSON omitted native renderer: %s, err=%v", encoded, err)
+	}
+}
+
+func TestManifestRejectsInvalidNativeDashboardRenderer(t *testing.T) {
+	for name, fragment := range map[string]string{
+		"wrong slot":     "slots: [chat.message_attachment]",
+		"wrong schema":   "slots: [dashboard.home]\n      native:\n        schema: native/v2\n        entry: /ui/surfaces/overview.json",
+		"external entry": "slots: [dashboard.home]\n      native:\n        schema: apteva-native-surface/v1\n        entry: https://example.com/overview.json",
+		"traversal":      "slots: [dashboard.home]\n      native:\n        schema: apteva-native-surface/v1\n        entry: /ui/../overview.json",
+	} {
+		t.Run(name, func(t *testing.T) {
+			native := "\n      native:\n        schema: apteva-native-surface/v1\n        entry: /ui/surfaces/overview.json"
+			if strings.Contains(fragment, "native:") {
+				native = ""
+			}
+			_, err := ParseManifest([]byte(`
+schema: apteva-app/v1
+name: widget-test
+version: 1.0.0
+provides:
+  ui_components:
+    - name: overview
+      entry: /ui/Overview.mjs
+      ` + fragment + native + `
+`))
+			if err == nil {
+				t.Fatal("expected validation error")
+			}
+		})
+	}
+}

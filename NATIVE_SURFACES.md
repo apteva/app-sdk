@@ -26,6 +26,43 @@ through the declaring app's authenticated proxy, parses it with strict known
 fields, and verifies that the document's `id` and `schema` equal the descriptor.
 An unsupported schema is an update-required state, not a best-effort render.
 
+### Dashboard widgets
+
+The same schema also describes compact native widgets. An app advertises a
+dashboard component beside its web renderer; both use the same component id,
+settings and refresh topics:
+
+```yaml
+provides:
+  ui_components:
+    - id: tasks-overview
+      label: Tasks
+      slots: [dashboard.home]
+      sizes: [half, full]
+      default_size: half
+      refresh_topics: [tasks.changed]
+      native:
+        schema: apteva-native-surface/v1
+        entry: /ui/surfaces/tasks-overview.json
+```
+
+Its document uses `"presentation": "widget"` and a non-empty `blocks` array
+instead of page `sections`. Supported blocks are `metric`, `metrics`, `text`,
+`status`, `progress`, `list`, `empty_state`, `divider`, and `action`. A widget
+may set `navigation.surface` to the id of one of the same app's advertised
+`mobile.project_app` surfaces. The host owns the card, size, typography,
+settings editor, loading/error UI, navigation, and event-driven refresh.
+
+Widget data sources and actions use the same authenticated, app-relative
+request contract as full pages. Widget value selectors are evaluated against
+the named source response. List item selectors are evaluated against each
+record. `refresh_topics` live in the manifest so the host can reload only the
+affected widget when the app publishes a matching AppBus event.
+Blocks may use `visible_if: $settings.<name>` for a boolean component setting;
+the host merges manifest defaults with the saved widget-instance settings.
+Widget data-source requests may bind those merged values with
+`$settings.<name>`, for example `recent_limit: $settings.recent_limit`.
+
 ## Host responsibilities
 
 The native host owns authentication, project scope, navigation presentation,
@@ -68,7 +105,7 @@ Refresh policy supports initial loading and pull-to-refresh.
 
 ## Native components
 
-V1 sections are:
+V1 page sections are:
 
 - `collection`: list, grid, or adaptive records with search, choice/resource
   filters, toggles, badges, destinations, and item actions.

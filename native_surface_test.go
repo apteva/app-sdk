@@ -166,3 +166,28 @@ func TestValidateNativeSurfaceForDescriptorRejectsMismatch(t *testing.T) {
 		t.Fatalf("error = %v", err)
 	}
 }
+
+func TestParseNativeDashboardWidget(t *testing.T) {
+	document := []byte(`{
+  "schema":"apteva-native-surface/v1",
+  "id":"tasks-overview",
+  "version":"1.0.0",
+  "title":"Tasks",
+  "icon":"check-square",
+  "context":{"scope":"project"},
+  "presentation":"widget",
+  "data_sources":{"summary":{"request":{"method":"GET","path":"/mobile/summary","query":{"recent_limit":"$settings.recent_limit"}},"response":{"item":"$"}}},
+  "blocks":[
+    {"id":"counts","type":"metrics","source":"summary","metrics":[{"label":"Open","value":"$.open","format":"count"}]},
+    {"id":"recent","type":"list","source":"summary","items":"$.tasks","limit":3,"visible_if":"$settings.show_recent","item":{"id":"{item.id}","title":"{item.title}"}}
+  ],
+  "navigation":{"surface":"tasks"}
+}`)
+	surface, err := ParseNativeSurface(document)
+	if err != nil {
+		t.Fatalf("ParseNativeSurface(widget): %v", err)
+	}
+	if surface.Presentation != "widget" || len(surface.Blocks) != 2 {
+		t.Fatalf("unexpected widget: %#v", surface)
+	}
+}

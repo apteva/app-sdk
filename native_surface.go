@@ -21,8 +21,8 @@ var (
 	nativeSurfaceIDPattern       = regexp.MustCompile(`^[a-z][a-z0-9_-]*$`)
 	nativeSurfaceVersionPattern  = regexp.MustCompile(`^[0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$`)
 	nativeSurfaceSelectorPattern = regexp.MustCompile(`^\$(?:\.[A-Za-z_][A-Za-z0-9_]*)*$`)
-	nativeSurfaceBindingPattern  = regexp.MustCompile(`\{(context|state|item|input|result)(?:\.([A-Za-z_][A-Za-z0-9_]*))?(?:\.[A-Za-z_][A-Za-z0-9_]*)*\}`)
-	nativeSurfaceDirectBinding   = regexp.MustCompile(`^\$(context|state|item|input|result)(?:\.[A-Za-z_][A-Za-z0-9_]*)+$`)
+	nativeSurfaceBindingPattern  = regexp.MustCompile(`\{(context|settings|state|item|input|result)(?:\.([A-Za-z_][A-Za-z0-9_]*))?(?:\.[A-Za-z_][A-Za-z0-9_]*)*\}`)
+	nativeSurfaceDirectBinding   = regexp.MustCompile(`^\$(context|settings|state|item|input|result)(?:\.[A-Za-z_][A-Za-z0-9_]*)+$`)
 )
 
 // NativeSurface is the canonical, code-free UI contract consumed by native
@@ -43,6 +43,43 @@ type NativeSurface struct {
 	Destinations   map[string]NativeSurfaceDestination `json:"destinations,omitempty"`
 	Actions        map[string]NativeSurfaceAction      `json:"actions,omitempty"`
 	Resources      map[string]NativeSurfaceResource    `json:"resources,omitempty"`
+	Presentation   string                              `json:"presentation,omitempty"`
+	Blocks         []NativeSurfaceBlock                `json:"blocks,omitempty"`
+	Navigation     *NativeSurfaceNavigation            `json:"navigation,omitempty"`
+}
+
+// NativeSurfaceNavigation lets a compact dashboard widget open one of the
+// declaring app's separately advertised mobile.project_app surfaces.
+type NativeSurfaceNavigation struct {
+	Surface string `json:"surface"`
+}
+
+// NativeSurfaceBlock is the deliberately small dashboard-widget vocabulary.
+// Values are selectors into the named source response (or literal text).
+type NativeSurfaceBlock struct {
+	ID        string                      `json:"id"`
+	Type      string                      `json:"type"`
+	Title     string                      `json:"title,omitempty"`
+	Label     string                      `json:"label,omitempty"`
+	Source    string                      `json:"source,omitempty"`
+	Value     string                      `json:"value,omitempty"`
+	Text      string                      `json:"text,omitempty"`
+	Format    string                      `json:"format,omitempty"`
+	Icon      string                      `json:"icon,omitempty"`
+	Items     string                      `json:"items,omitempty"`
+	Item      *NativeSurfaceItemMapping   `json:"item,omitempty"`
+	Metrics   []NativeSurfaceBlockMetric  `json:"metrics,omitempty"`
+	Limit     int                         `json:"limit,omitempty"`
+	Action    string                      `json:"action,omitempty"`
+	Empty     *NativeSurfaceSemanticState `json:"empty,omitempty"`
+	VisibleIf string                      `json:"visible_if,omitempty"`
+}
+
+type NativeSurfaceBlockMetric struct {
+	Label  string `json:"label"`
+	Value  string `json:"value"`
+	Format string `json:"format,omitempty"`
+	Icon   string `json:"icon,omitempty"`
 }
 
 type NativeSurfaceContext struct {
@@ -299,8 +336,17 @@ func ValidateNativeSurface(surface *NativeSurface) error {
 	if surface.Context.Scope != NativeSurfaceContextProject {
 		return fmt.Errorf("native surface context.scope %q unsupported (expected project)", surface.Context.Scope)
 	}
-	if len(surface.Sections) == 0 {
-		return errors.New("native surface requires at least one section")
+	switch surface.Presentation {
+	case "", "page":
+		if len(surface.Sections) == 0 {
+			return errors.New("native page surface requires at least one section")
+		}
+	case "widget":
+		if len(surface.Blocks) == 0 {
+			return errors.New("native widget surface requires at least one block")
+		}
+	default:
+		return fmt.Errorf("native surface presentation %q unsupported", surface.Presentation)
 	}
 
 	for name, state := range surface.State {
@@ -326,6 +372,18 @@ func ValidateNativeSurface(surface *NativeSurface) error {
 			return err
 		}
 		sectionIDs[section.ID] = true
+	}
+	blockIDs := map[string]bool{}
+	for i, block := range surface.Blocks {
+		if err := validateNativeBlock(block, fmt.Sprintf("blocks[%d]", i), surface, blockIDs); err != nil {
+			return err
+		}
+		blockIDs[block.ID] = true
+	}
+	if surface.Navigation != nil {
+		if surface.Presentation != "widget" || !isSlug(surface.Navigation.Surface) {
+			return errors.New("native surface navigation requires a widget presentation and a surface slug")
+		}
 	}
 	for name, destination := range surface.Destinations {
 		if !nativeSurfaceIDPattern.MatchString(name) {
@@ -381,6 +439,55 @@ func ValidateNativeSurface(surface *NativeSurface) error {
 		if !validSelector(resource.Mapping.ID) || !validSelector(resource.Mapping.Label) ||
 			(resource.Mapping.Parent != "" && !validSelector(resource.Mapping.Parent)) {
 			return fmt.Errorf("resource %q has an invalid response mapping", name)
+		}
+	}
+	return nil
+}
+
+func validateNativeBlock(block NativeSurfaceBlock, prefix string, surface *NativeSurface, seen map[string]bool) error {
+	if !nativeSurfaceIDPattern.MatchString(block.ID) || seen[block.ID] {
+		return fmt.Errorf("%s has invalid or duplicate id %q", prefix, block.ID)
+	}
+	switch block.Type {
+	case "metric", "metrics", "text", "status", "progress", "list", "empty_state", "divider", "action":
+	default:
+		return fmt.Errorf("%s type %q unsupported", prefix, block.Type)
+	}
+	if block.Source != "" && surface.DataSources[block.Source].Request.Path == "" {
+		return fmt.Errorf("%s references unknown source %q", prefix, block.Source)
+	}
+	if block.Limit < 0 || block.Limit > 20 {
+		return fmt.Errorf("%s limit must be between 1 and 20", prefix)
+	}
+	if block.VisibleIf != "" && !regexp.MustCompile(`^\$settings\.[A-Za-z_][A-Za-z0-9_]*$`).MatchString(block.VisibleIf) {
+		return fmt.Errorf("%s visible_if must reference one boolean widget setting", prefix)
+	}
+	for _, value := range []string{block.Value, block.Items} {
+		if value != "" && !validSelector(value) {
+			return fmt.Errorf("%s has invalid selector %q", prefix, value)
+		}
+	}
+	if block.Type == "metric" && (block.Source == "" || block.Value == "") {
+		return fmt.Errorf("%s metric requires source and value", prefix)
+	}
+	if block.Type == "metrics" {
+		if block.Source == "" || len(block.Metrics) == 0 {
+			return fmt.Errorf("%s metrics requires source and mappings", prefix)
+		}
+		for i, metric := range block.Metrics {
+			if strings.TrimSpace(metric.Label) == "" || !validSelector(metric.Value) {
+				return fmt.Errorf("%s metrics[%d] requires label and value selector", prefix, i)
+			}
+		}
+	}
+	if block.Type == "list" {
+		if block.Source == "" || block.Items == "" || block.Item == nil || block.Item.ID == "" || block.Item.Title == "" {
+			return fmt.Errorf("%s list requires source, items, and item mapping", prefix)
+		}
+	}
+	if block.Type == "action" {
+		if block.Action == "" || surface.Actions[block.Action].Type == "" {
+			return fmt.Errorf("%s action references an unknown action", prefix)
 		}
 	}
 	return nil

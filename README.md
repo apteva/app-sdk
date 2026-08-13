@@ -114,6 +114,21 @@ The v1 security boundary is deliberate:
 Unsupported surface schema versions should be shown by clients as requiring an
 app update. They must not be rendered speculatively.
 
+Dashboard components can add a native renderer alongside their web `entry`:
+
+```yaml
+ui_components:
+  - name: overview
+    entry: /ui/Overview.mjs
+    slots: [dashboard.home]
+    native:
+      schema: apteva-native-surface/v1
+      entry: /ui/surfaces/overview.json
+```
+
+See the dashboard-widget section in [`NATIVE_SURFACES.md`](NATIVE_SURFACES.md)
+for blocks, settings, navigation, and AppBus refresh behavior.
+
 ## Talking back to the platform
 
 Use `ctx.PlatformAPI()` — every method is permission-checked server-
