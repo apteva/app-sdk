@@ -954,6 +954,13 @@ const (
 	// scoped platform grant. The server validates the requested record
 	// against the grant before forwarding to the backing controller.
 	PermDNSWrite Permission = "platform.dns.write"
+	// PermPlatformBackupRead permits a global, admin-owned app install to
+	// stream a full platform snapshot. The server also checks install scope,
+	// owner role, active status, and the approved install permission snapshot.
+	PermPlatformBackupRead Permission = "platform.backup.read"
+	// PermPlatformBackupRestore is intentionally separate from snapshot read:
+	// restoring replaces live app data and stages the platform DB for restart.
+	PermPlatformBackupRestore Permission = "platform.backup.restore"
 )
 
 // AllPermissions returns the full taxonomy — used by the dashboard's
@@ -974,6 +981,22 @@ func AllPermissions() []Permission {
 		PermRuntimeCatalogRead, PermAgentsDirectiveWrite,
 		PermIngressRead, PermIngressWrite,
 		PermDNSRead, PermDNSWrite,
+		PermPlatformBackupRead, PermPlatformBackupRestore,
+	}
+}
+
+// PermissionDescription returns install-consent copy for permissions whose
+// security effect benefits from more detail than the capability slug alone.
+// Unknown permissions intentionally fall back to the raw permission string so
+// callers remain forward-compatible with newer SDK taxonomies.
+func PermissionDescription(permission Permission) string {
+	switch permission {
+	case PermPlatformBackupRead:
+		return "Read and stream a full backup of the platform and installed app databases."
+	case PermPlatformBackupRestore:
+		return "Restore a platform backup, replacing app data and staging the platform database for restart."
+	default:
+		return string(permission)
 	}
 }
 

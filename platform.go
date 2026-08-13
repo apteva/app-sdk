@@ -2,6 +2,7 @@ package sdk
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -30,6 +31,10 @@ type httpPlatformClient struct {
 	token      string
 	client     *http.Client
 	slowClient *http.Client
+	// streamClient has no whole-request timeout. Long transfers are bounded by
+	// the context supplied by the app, while the transport still enforces its
+	// normal connection and response-header deadlines.
+	streamClient *http.Client
 
 	// platform_info cache. Sidecars used to read public_url etc. via
 	// the APTEVA_PUBLIC_URL env var captured at spawn time; that meant
@@ -51,9 +56,94 @@ func newHTTPPlatformClient(baseURL, token string) PlatformClient {
 	}
 	return &httpPlatformClient{
 		baseURL: baseURL, token: token,
-		client:     &http.Client{Timeout: 30 * time.Second},
-		slowClient: &http.Client{Timeout: 10 * time.Minute},
+		client:       &http.Client{Timeout: 30 * time.Second},
+		slowClient:   &http.Client{Timeout: 10 * time.Minute},
+		streamClient: &http.Client{},
 	}
+}
+
+const platformBackupErrorLimit = 64 << 10
+
+func (c *httpPlatformClient) OpenPlatformSnapshot(ctx context.Context) (io.ReadCloser, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.baseURL+"/api/apps/callback/platform/snapshot", nil)
+	if err != nil {
+		return nil, err
+	}
+	c.addAuth(req)
+	resp, err := c.platformStreamClient().Do(req)
+	if err != nil {
+		return nil, err
+	}
+	if resp.StatusCode/100 != 2 {
+		defer resp.Body.Close()
+		return nil, boundedPlatformError(resp, platformBackupErrorLimit)
+	}
+	return resp.Body, nil
+}
+
+func (c *httpPlatformClient) RestorePlatformSnapshot(ctx context.Context, body io.Reader, size int64) (map[string]any, error) {
+	if body == nil {
+		return nil, errors.New("platform restore body is required")
+	}
+	if size < -1 {
+		return nil, errors.New("platform restore size must be -1 or non-negative")
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+"/api/apps/callback/platform/restore", body)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Content-Type", "application/gzip")
+	req.Header.Set("X-Confirm-Restore", "yes")
+	if size >= 0 {
+		req.ContentLength = size
+	} else {
+		// Override net/http's reader-size inference so -1 has the promised
+		// chunked-transfer meaning even for bytes.Buffer/bytes.Reader inputs.
+		req.ContentLength = -1
+	}
+	c.addAuth(req)
+	resp, err := c.platformStreamClient().Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode/100 != 2 {
+		return nil, boundedPlatformError(resp, platformBackupErrorLimit)
+	}
+	limited := io.LimitReader(resp.Body, platformBackupErrorLimit+1)
+	raw, err := io.ReadAll(limited)
+	if err != nil {
+		return nil, fmt.Errorf("read platform restore response: %w", err)
+	}
+	if len(raw) > platformBackupErrorLimit {
+		return nil, errors.New("platform restore response exceeds limit")
+	}
+	var report map[string]any
+	if err := json.Unmarshal(raw, &report); err != nil {
+		return nil, fmt.Errorf("decode platform restore response: %w", err)
+	}
+	return report, nil
+}
+
+func (c *httpPlatformClient) platformStreamClient() *http.Client {
+	if c.streamClient != nil {
+		return c.streamClient
+	}
+	if c.slowClient != nil {
+		return c.slowClient
+	}
+	return http.DefaultClient
+}
+
+func boundedPlatformError(resp *http.Response, limit int64) error {
+	body, _ := io.ReadAll(io.LimitReader(resp.Body, limit))
+	return fmt.Errorf("platform %s: http %d: %s", resp.Request.URL.Path, resp.StatusCode, strings.TrimSpace(string(body)))
 }
 
 // PlatformInfo fetches the platform-level facts bag (public_url +

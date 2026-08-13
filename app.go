@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -258,6 +259,21 @@ func (c *AppCtx) RuntimeAPI() RuntimeClient {
 	}
 	runtimeAPI, _ := c.platform.(RuntimeClient)
 	return runtimeAPI
+}
+
+// PlatformBackupAPI returns the optional full-platform backup capability.
+// Keeping this privileged streaming surface separate from PlatformClient
+// avoids breaking every app test double when backup operations evolve.
+func (c *AppCtx) PlatformBackupAPI() PlatformBackupClient {
+	if c == nil || c.platform == nil {
+		return nil
+	}
+	if scoped, ok := c.platform.(*projectScopedClient); ok {
+		backupAPI, _ := scoped.inner.(PlatformBackupClient)
+		return backupAPI
+	}
+	backupAPI, _ := c.platform.(PlatformBackupClient)
+	return backupAPI
 }
 
 // PlatformInfo is the shortcut for c.PlatformAPI().PlatformInfo() —
@@ -978,6 +994,18 @@ type ThreadClient interface {
 	SendThreadEvent(target ThreadRef, message any) error
 	SpawnThread(req ThreadSpawnRequest) (*ThreadSpawnResult, error)
 	KillThread(agentID int64, threadID string) error
+}
+
+// PlatformBackupClient is the privileged, streaming platform-backup surface.
+// Server authorization requires a global, active, admin-owned installation
+// with the matching approved permission for each operation.
+type PlatformBackupClient interface {
+	// OpenPlatformSnapshot streams a snapshot response. The caller must close
+	// the returned reader. Cancellation of ctx aborts the transfer.
+	OpenPlatformSnapshot(ctx context.Context) (io.ReadCloser, error)
+	// RestorePlatformSnapshot streams a gzip snapshot into the platform. Pass
+	// -1 when the content length is unknown and chunked transfer is required.
+	RestorePlatformSnapshot(ctx context.Context, body io.Reader, size int64) (map[string]any, error)
 }
 
 // PlatformInfo is the small "what does the operator have configured at
