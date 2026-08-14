@@ -18,6 +18,26 @@ import (
 	"testing"
 )
 
+func TestGetIntegrationURLProperty(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet || r.URL.Path != "/api/apps/callback/integrations/42/url-properties/content_delivery" {
+			t.Fatalf("unexpected request: %s %s", r.Method, r.URL.Path)
+		}
+		if r.Header.Get("Authorization") != "Bearer test-token" {
+			t.Fatalf("authorization=%q", r.Header.Get("Authorization"))
+		}
+		_, _ = w.Write([]byte(`{"integration":"tiktok-api","property":"content_delivery","ready":true,"configured_prefix":"https://agents.example/api/relay/","state":{"hosting_status":"ready","relay_status":"ready"}}`))
+	}))
+	defer ts.Close()
+	status, err := GetIntegrationURLProperty(newHTTPPlatformClient(ts.URL, "test-token"), 42, "content_delivery")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !status.Ready || status.Integration != "tiktok-api" || status.State.HostingStatus != "ready" {
+		t.Fatalf("status=%+v", status)
+	}
+}
+
 func TestDecodeMCPEnvelope_FullEnvelope(t *testing.T) {
 	raw := json.RawMessage(`{
 		"jsonrpc":"2.0","id":1,

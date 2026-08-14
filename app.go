@@ -988,6 +988,39 @@ type PlatformClient interface {
 	StopEnvironmentAgent(environmentID string, agentOrAlias string) error
 }
 
+type IntegrationURLPropertyStatus struct {
+	Integration      string `json:"integration"`
+	Property         string `json:"property"`
+	Ready            bool   `json:"ready"`
+	ConfiguredPrefix string `json:"configured_prefix"`
+	Fingerprint      string `json:"fingerprint"`
+	State            struct {
+		HostingStatus                string `json:"hosting_status"`
+		RelayStatus                  string `json:"relay_status"`
+		OperatorConfirmedAt          string `json:"operator_confirmed_at"`
+		LastSuccessfulProviderPullAt string `json:"last_successful_provider_pull_at"`
+		LastTestAt                   string `json:"last_test_at"`
+	} `json:"state"`
+}
+
+// IntegrationURLPropertyClient is an optional extension implemented by the
+// SDK's HTTP client. Keeping it separate preserves compatibility with apps
+// that provide their own PlatformClient test doubles.
+type IntegrationURLPropertyClient interface {
+	GetIntegrationURLProperty(connID int64, property string) (*IntegrationURLPropertyStatus, error)
+}
+
+// GetIntegrationURLProperty reads the optional provider URL-delivery
+// readiness capability without forcing every PlatformClient implementation
+// to grow a method. Older/custom clients return a clear unsupported error.
+func GetIntegrationURLProperty(client PlatformClient, connID int64, property string) (*IntegrationURLPropertyStatus, error) {
+	extended, ok := client.(IntegrationURLPropertyClient)
+	if !ok {
+		return nil, errors.New("server/SDK does not support integration URL properties")
+	}
+	return extended.GetIntegrationURLProperty(connID, property)
+}
+
 // ThreadClient is the generic, optional thread-addressing surface. Thread ids
 // are opaque; applications own any creator/assignee/executor relationships.
 type ThreadClient interface {

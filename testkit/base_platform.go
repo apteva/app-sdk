@@ -78,6 +78,10 @@ func (BasePlatformClient) ExecuteIntegrationTool(int64, string, map[string]any) 
 	return nil, ErrNotImplemented
 }
 
+func (BasePlatformClient) GetIntegrationURLProperty(int64, string) (*sdk.IntegrationURLPropertyStatus, error) {
+	return nil, ErrNotImplemented
+}
+
 func (BasePlatformClient) CallApp(string, string, map[string]any) (json.RawMessage, error) {
 	return nil, ErrNotImplemented
 }

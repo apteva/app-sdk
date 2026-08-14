@@ -24,6 +24,9 @@ func (s *stubProjectPlatformClient) WhoAmI() (*InstallIdentity, error)          
 func (s *stubProjectPlatformClient) ExecuteIntegrationTool(int64, string, map[string]any) (*ExecuteResult, error) {
 	return nil, nil
 }
+func (s *stubProjectPlatformClient) GetIntegrationURLProperty(int64, string) (*IntegrationURLPropertyStatus, error) {
+	return nil, nil
+}
 func (s *stubProjectPlatformClient) CallApp(string, string, map[string]any) (json.RawMessage, error) {
 	return nil, nil
 }

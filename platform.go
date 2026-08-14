@@ -270,6 +270,15 @@ func (c *httpPlatformClient) ExecuteIntegrationTool(connID int64, tool string, i
 	return &out, nil
 }
 
+func (c *httpPlatformClient) GetIntegrationURLProperty(connID int64, property string) (*IntegrationURLPropertyStatus, error) {
+	var out IntegrationURLPropertyStatus
+	endpoint := "/api/apps/callback/integrations/" + strconv.FormatInt(connID, 10) + "/url-properties/" + url.PathEscape(property)
+	if err := c.get(endpoint, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
 func (c *httpPlatformClient) CallApp(appName, tool string, input map[string]any) (json.RawMessage, error) {
 	if input == nil {
 		input = map[string]any{}
@@ -827,6 +836,9 @@ func (p *projectScopedClient) WhoAmI() (*InstallIdentity, error) {
 }
 func (p *projectScopedClient) ExecuteIntegrationTool(connID int64, tool string, input map[string]any) (*ExecuteResult, error) {
 	return p.inner.ExecuteIntegrationTool(connID, tool, input)
+}
+func (p *projectScopedClient) GetIntegrationURLProperty(connID int64, property string) (*IntegrationURLPropertyStatus, error) {
+	return GetIntegrationURLProperty(p.inner, connID, property)
 }
 func (p *projectScopedClient) StartOAuth(req OAuthStartRequest) (*OAuthStartResult, error) {
 	if req.ProjectID == "" {
