@@ -1579,6 +1579,13 @@ type PlatformInstance struct {
 	Mode            string `json:"mode"`
 	ProjectID       string `json:"project_id"`
 	DefaultThreadID string `json:"default_thread_id,omitempty"`
+	// AttachedToCaller reports whether this agent has the calling
+	// install's app bound (app_agent_bindings). Only populated by
+	// ListAgents responses from servers that support the annotation;
+	// single-agent fetches leave it false. An app can detect support
+	// by checking the flag on an agent it knows is bound — e.g. the
+	// agent whose tool call triggered the lookup.
+	AttachedToCaller bool `json:"attached_to_caller,omitempty"`
 }
 
 // ThreadRef is the stable, generic address of a thread inside an agent.
