@@ -65,6 +65,9 @@ func (BasePlatformClient) SendEvent(int64, string) error {
 func (BasePlatformClient) SendThreadEvent(sdk.ThreadRef, any) error {
 	return ErrNotImplemented
 }
+func (BasePlatformClient) ListAgents(string) ([]sdk.PlatformAgent, error) {
+	return nil, ErrNotImplemented
+}
 
 func (BasePlatformClient) SendToChannel(string, string, string) error {
 	return ErrNotImplemented

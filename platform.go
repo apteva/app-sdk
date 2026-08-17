@@ -226,6 +226,20 @@ func (c *httpPlatformClient) GetAgent(id int64) (*PlatformAgent, error) {
 	return c.GetInstance(id)
 }
 
+// ListAgents implements the optional AgentDirectoryClient surface.
+// Requires the platform.instances.read permission server-side.
+func (c *httpPlatformClient) ListAgents(projectID string) ([]PlatformAgent, error) {
+	path := "/api/apps/callback/agents"
+	if strings.TrimSpace(projectID) != "" {
+		path += "?project_id=" + url.QueryEscape(projectID)
+	}
+	var out []PlatformAgent
+	if err := c.get(path, &out); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *httpPlatformClient) SendEvent(instanceID int64, message string) error {
 	return c.post("/api/apps/callback/agents/"+strconv.FormatInt(instanceID, 10)+"/event",
 		map[string]any{"message": message}, nil)
@@ -809,6 +823,16 @@ func (p *projectScopedClient) SendThreadEvent(target ThreadRef, message any) err
 		return errors.New("thread API unavailable")
 	}
 	return client.SendThreadEvent(target, message)
+}
+func (p *projectScopedClient) ListAgents(projectID string) ([]PlatformAgent, error) {
+	client, ok := p.inner.(AgentDirectoryClient)
+	if !ok {
+		return nil, errors.New("agent directory API unavailable")
+	}
+	if projectID == "" {
+		projectID = p.projectID
+	}
+	return client.ListAgents(projectID)
 }
 func (p *projectScopedClient) SendToChannel(channelName, projectID, message string) error {
 	if projectID == "" {

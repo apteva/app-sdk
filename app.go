@@ -1021,6 +1021,27 @@ func GetIntegrationURLProperty(client PlatformClient, connID int64, property str
 	return extended.GetIntegrationURLProperty(connID, property)
 }
 
+// AgentDirectoryClient is the optional agent-enumeration surface.
+// Server authorization requires the platform.instances.read permission.
+// projectID filters to one project; empty lists every agent the install
+// may see (project-scoped installs are always pinned to their own
+// project server-side regardless of the argument). Platform-owned
+// helper agents are never included.
+type AgentDirectoryClient interface {
+	ListAgents(projectID string) ([]PlatformAgent, error)
+}
+
+// ListAgentsVia reads the optional agent-directory capability without
+// forcing every PlatformClient implementation to grow a method.
+// Older/custom clients return a clear unsupported error.
+func ListAgentsVia(client PlatformClient, projectID string) ([]PlatformAgent, error) {
+	directory, ok := client.(AgentDirectoryClient)
+	if !ok {
+		return nil, errors.New("server/SDK does not support agent listing")
+	}
+	return directory.ListAgents(projectID)
+}
+
 // ThreadClient is the generic, optional thread-addressing surface. Thread ids
 // are opaque; applications own any creator/assignee/executor relationships.
 type ThreadClient interface {
