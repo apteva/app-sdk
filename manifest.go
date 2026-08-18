@@ -961,6 +961,13 @@ const (
 	// PermPlatformBackupRestore is intentionally separate from snapshot read:
 	// restoring replaces live app data and stages the platform DB for restart.
 	PermPlatformBackupRestore Permission = "platform.backup.restore"
+	// PermTelemetryRead lets an app subscribe to live agent telemetry
+	// (thoughts, tool calls, LLM token deltas) for agents its installing
+	// user owns, via the ephemeral callback SSE stream. Deliberately its
+	// own permission rather than part of platform.instances.read:
+	// telemetry exposes directives, tool arguments, and model output in
+	// flight, and the consent screen should say so explicitly.
+	PermTelemetryRead Permission = "platform.telemetry.read"
 )
 
 // AllPermissions returns the full taxonomy — used by the dashboard's
@@ -982,6 +989,7 @@ func AllPermissions() []Permission {
 		PermIngressRead, PermIngressWrite,
 		PermDNSRead, PermDNSWrite,
 		PermPlatformBackupRead, PermPlatformBackupRestore,
+		PermTelemetryRead,
 	}
 }
 
@@ -995,6 +1003,8 @@ func PermissionDescription(permission Permission) string {
 		return "Read and stream a full backup of the platform and installed app databases."
 	case PermPlatformBackupRestore:
 		return "Restore a platform backup, replacing app data and staging the platform database for restart."
+	case PermTelemetryRead:
+		return "Subscribe to live telemetry (thoughts, tool calls, streaming output) from agents you own."
 	default:
 		return string(permission)
 	}
