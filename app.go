@@ -1595,21 +1595,38 @@ type ThreadRef struct {
 	ThreadID string `json:"thread_id"`
 }
 
+// ThreadEvent is an idempotent initial event submitted while spawning a
+// thread. ID must be stable across retries. Message uses the same payload
+// contract as SendThreadEvent (a string or supported content-part array).
+type ThreadEvent struct {
+	ID      string `json:"id"`
+	Message any    `json:"message"`
+}
+
+// ThreadEventReceipt reports which initial events Core newly queued and which
+// were already present under the same stable IDs. Both outcomes are success.
+type ThreadEventReceipt struct {
+	Accepted   []string `json:"accepted,omitempty"`
+	Duplicates []string `json:"duplicates,omitempty"`
+}
+
 // ThreadSpawnRequest creates an ordinary durable thread through the platform.
 // Apps may persist their own creator/assignee/executor relationships using the
 // returned ThreadRef; those relationships are not platform thread types.
 type ThreadSpawnRequest struct {
-	AgentID         int64    `json:"agent_id"`
-	ThreadID        string   `json:"thread_id"`
-	DirectiveSuffix string   `json:"directive_suffix,omitempty"`
-	Tools           []string `json:"tools,omitempty"`
-	MCP             []string `json:"mcp,omitempty"`
-	Ephemeral       bool     `json:"ephemeral,omitempty"`
+	AgentID         int64         `json:"agent_id"`
+	ThreadID        string        `json:"thread_id"`
+	DirectiveSuffix string        `json:"directive_suffix,omitempty"`
+	Tools           []string      `json:"tools,omitempty"`
+	MCP             []string      `json:"mcp,omitempty"`
+	Ephemeral       bool          `json:"ephemeral,omitempty"`
+	Events          []ThreadEvent `json:"events,omitempty"`
 }
 
 type ThreadSpawnResult struct {
-	Status string    `json:"status"`
-	Thread ThreadRef `json:"thread"`
+	Status string             `json:"status"`
+	Thread ThreadRef          `json:"thread"`
+	Events ThreadEventReceipt `json:"events,omitempty"`
 }
 
 // PlatformAgent is the canonical type name for the entity formerly

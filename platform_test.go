@@ -203,6 +203,7 @@ func TestRealtimeLifecycleRequestsCarryAgentIdentity(t *testing.T) {
 
 func TestOpaqueThreadRequestsPreserveTargetAndStructuredMessage(t *testing.T) {
 	var sent, spawned bool
+	eventID := "conversation:42:message:99:agent:7"
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {
 		case r.Method == http.MethodPost && r.URL.Path == "/api/apps/callback/agents/42/event":
@@ -226,8 +227,14 @@ func TestOpaqueThreadRequestsPreserveTargetAndStructuredMessage(t *testing.T) {
 			if body.AgentID != 42 || body.ThreadID != "opaque-run-9" || body.DirectiveSuffix != "Do the app-owned work" {
 				t.Fatalf("spawn body=%+v", body)
 			}
+			if len(body.Events) != 1 || body.Events[0].ID != eventID || body.Events[0].Message != "Hello" {
+				t.Fatalf("spawn events=%+v", body.Events)
+			}
 			spawned = true
-			_ = json.NewEncoder(w).Encode(ThreadSpawnResult{Status: "created", Thread: ThreadRef{AgentID: 42, ThreadID: body.ThreadID}})
+			_ = json.NewEncoder(w).Encode(ThreadSpawnResult{
+				Status: "created", Thread: ThreadRef{AgentID: 42, ThreadID: body.ThreadID},
+				Events: ThreadEventReceipt{Accepted: []string{eventID}, Duplicates: []string{"already-seen"}},
+			})
 		default:
 			http.NotFound(w, r)
 		}
@@ -238,12 +245,38 @@ func TestOpaqueThreadRequestsPreserveTargetAndStructuredMessage(t *testing.T) {
 	if err := client.SendThreadEvent(ThreadRef{AgentID: 42, ThreadID: "opaque-a7"}, map[string]any{"type": "work.ready"}); err != nil {
 		t.Fatal(err)
 	}
-	result, err := client.SpawnThread(ThreadSpawnRequest{AgentID: 42, ThreadID: "opaque-run-9", DirectiveSuffix: "Do the app-owned work"})
+	result, err := client.SpawnThread(ThreadSpawnRequest{
+		AgentID: 42, ThreadID: "opaque-run-9", DirectiveSuffix: "Do the app-owned work",
+		Events: []ThreadEvent{{ID: eventID, Message: "Hello"}},
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.Thread.ThreadID != "opaque-run-9" || !sent || !spawned {
+	if result.Thread.ThreadID != "opaque-run-9" || len(result.Events.Accepted) != 1 ||
+		result.Events.Accepted[0] != eventID || len(result.Events.Duplicates) != 1 || !sent || !spawned {
 		t.Fatalf("result=%+v sent=%t spawned=%t", result, sent, spawned)
+	}
+}
+
+func TestSpawnThreadEventlessRequestRemainsCompatible(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body map[string]json.RawMessage
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Fatal(err)
+		}
+		if _, exists := body["events"]; exists {
+			t.Fatalf("eventless spawn serialized events: %s", body["events"])
+		}
+		_ = json.NewEncoder(w).Encode(ThreadSpawnResult{
+			Status: "exists", Thread: ThreadRef{AgentID: 9, ThreadID: "legacy-thread"},
+		})
+	}))
+	defer ts.Close()
+
+	client := newHTTPPlatformClient(ts.URL, "test-token").(ThreadClient)
+	result, err := client.SpawnThread(ThreadSpawnRequest{AgentID: 9, ThreadID: "legacy-thread"})
+	if err != nil || result.Status != "exists" || len(result.Events.Accepted) != 0 {
+		t.Fatalf("result=%+v err=%v", result, err)
 	}
 }
 
