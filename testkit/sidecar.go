@@ -248,6 +248,29 @@ func (s *Sidecar) DELETE(path string) *Response {
 	return s.requestJSON("DELETE", path, nil, nil)
 }
 
+// RequestWithHeaders exercises delegated HTTP identity and other
+// platform-minted proxy headers against the real sidecar mux.
+func (s *Sidecar) RequestWithHeaders(method, path string, body, out any, headers map[string]string) *Response {
+	s.t.Helper()
+	var reader io.Reader
+	if body != nil {
+		raw, _ := json.Marshal(body)
+		reader = bytes.NewReader(raw)
+	}
+	resp, err := s.doWithHeaders(method, path, reader, "application/json", headers)
+	if err != nil {
+		s.t.Fatalf("testkit: %s %s: %v", method, path, err)
+	}
+	defer resp.Body.Close()
+	raw, _ := io.ReadAll(resp.Body)
+	if out != nil && len(raw) > 0 && resp.StatusCode >= 200 && resp.StatusCode < 300 {
+		if err := json.Unmarshal(raw, out); err != nil {
+			s.t.Fatalf("testkit: decode %s %s (status %d): %v\nbody: %s", method, path, resp.StatusCode, err, string(raw))
+		}
+	}
+	return &Response{Status: resp.StatusCode, Body: raw}
+}
+
 // Response is the small wrapper helpers return so tests can assert
 // status codes without the http.Response noise.
 type Response struct {

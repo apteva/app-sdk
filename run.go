@@ -558,6 +558,7 @@ type mcpHandler struct {
 // authenticated app-to-app bridge. Network clients must never be allowed to
 // supply it through an ordinary app MCP proxy.
 const HeaderBoundCallerInstallID = "X-Apteva-Bound-Caller-Install-ID"
+const HeaderBoundCallerAppName = "X-Apteva-Bound-Caller-App-Name"
 
 func newMCPHandler(app App, ctx *AppCtx) http.Handler {
 	tools := app.MCPTools()
@@ -737,7 +738,9 @@ func (h *mcpHandler) buildCaller(r *http.Request) *Caller {
 	}
 	subjectType := strings.TrimSpace(r.Header.Get("X-Apteva-Subject-Type"))
 	subjectID := strings.TrimSpace(r.Header.Get("X-Apteva-Subject-ID"))
-	if raw == "" && (subjectType == "" || subjectID == "") {
+	boundAppID, _ := strconv.ParseInt(strings.TrimSpace(r.Header.Get(HeaderBoundCallerInstallID)), 10, 64)
+	boundAppName := strings.TrimSpace(r.Header.Get(HeaderBoundCallerAppName))
+	if raw == "" && (subjectType == "" || subjectID == "") && (boundAppID <= 0 || boundAppName == "") {
 		return nil
 	}
 	var (
@@ -758,6 +761,8 @@ func (h *mcpHandler) buildCaller(r *http.Request) *Caller {
 		AgentID:          id,
 		ThreadID:         strings.TrimSpace(r.Header.Get("X-Apteva-Caller-Thread")),
 		ProjectID:        strings.TrimSpace(r.Header.Get("X-Apteva-Project-ID")),
+		AppInstallID:     boundAppID,
+		AppName:          boundAppName,
 		SubjectType:      subjectType,
 		SubjectID:        subjectID,
 		SubjectEmail:     strings.TrimSpace(r.Header.Get("X-Apteva-Subject-Email")),

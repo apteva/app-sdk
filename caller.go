@@ -28,6 +28,11 @@ type Caller struct {
 	// ProjectID is the authenticated project scope selected by the platform
 	// gateway for this call. It is never read from model-supplied arguments.
 	ProjectID string
+	// AppInstallID and AppName identify an authenticated sibling app call.
+	// They are populated only from server-owned X-Apteva-Bound-Caller-*
+	// headers. Agent calls leave both fields empty/zero.
+	AppInstallID int64
+	AppName      string
 	// SubjectType and SubjectID identify a delegated end user. They are
 	// populated exclusively from server-owned X-Apteva-Subject-* headers.
 	// Agent calls leave these fields empty.

@@ -299,3 +299,19 @@ func TestBuildCallerFromDelegatedSubjectHeaders(t *testing.T) {
 		t.Fatalf("delegated metadata = %#v", caller)
 	}
 }
+
+func TestBuildCallerFromBoundSiblingAppHeaders(t *testing.T) {
+	h := &mcpHandler{ctx: &AppCtx{manifest: &Manifest{}}}
+	req := httptest.NewRequest(http.MethodPost, "/mcp", nil)
+	req.Header.Set(HeaderBoundCallerInstallID, "77")
+	req.Header.Set(HeaderBoundCallerAppName, "certs")
+	req.Header.Set("X-Apteva-Project-ID", "project-1")
+
+	caller := h.buildCaller(req)
+	if caller == nil {
+		t.Fatal("expected sibling-app caller")
+	}
+	if caller.AppInstallID != 77 || caller.AppName != "certs" || caller.ProjectID != "project-1" {
+		t.Fatalf("caller = %#v", caller)
+	}
+}
