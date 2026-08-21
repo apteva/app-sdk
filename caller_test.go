@@ -300,6 +300,20 @@ func TestBuildCallerFromDelegatedSubjectHeaders(t *testing.T) {
 	}
 }
 
+func TestBuildCallerIncludesTrustedThreadAndToolCallContext(t *testing.T) {
+	h := &mcpHandler{ctx: &AppCtx{manifest: &Manifest{}}}
+	req := httptest.NewRequest(http.MethodPost, "/mcp", nil)
+	req.Header.Set(HeaderBoundCallerInstallID, "7")
+	req.Header.Set(HeaderBoundCallerAppName, "conversations")
+	req.Header.Set("X-Apteva-Caller-Thread", "chat-7")
+	req.Header.Set("X-Apteva-Caller-Thread-Role", "conversation")
+	req.Header.Set("X-Apteva-Tool-Call-ID", "call-stable-9")
+	caller := h.buildCaller(req)
+	if caller == nil || caller.ThreadID != "chat-7" || caller.ThreadRole != "conversation" || caller.ToolCallID != "call-stable-9" {
+		t.Fatalf("caller=%#v", caller)
+	}
+}
+
 func TestBuildCallerFromBoundSiblingAppHeaders(t *testing.T) {
 	h := &mcpHandler{ctx: &AppCtx{manifest: &Manifest{}}}
 	req := httptest.NewRequest(http.MethodPost, "/mcp", nil)

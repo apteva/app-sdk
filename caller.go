@@ -25,6 +25,15 @@ type Caller struct {
 	// conversation or worker); applications may attach their own meaning to
 	// the id. Empty means the upstream did not provide thread context.
 	ThreadID string
+	// ThreadRole is a platform-owned classification of the caller's thread,
+	// for example "main", "conversation", or "worker". Apps may use it to
+	// enforce structural tool ownership. Empty means an older platform did not
+	// provide the classification.
+	ThreadRole string
+	// ToolCallID is the stable identity of the MCP tool invocation. It lets an
+	// app suppress duplicate visible effects when the platform retries a call.
+	// It is supplied by the gateway, never read from model arguments.
+	ToolCallID string
 	// ProjectID is the authenticated project scope selected by the platform
 	// gateway for this call. It is never read from model-supplied arguments.
 	ProjectID string

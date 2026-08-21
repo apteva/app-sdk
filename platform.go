@@ -703,6 +703,20 @@ func (c *httpPlatformClient) SpawnThread(req ThreadSpawnRequest) (*ThreadSpawnRe
 	return &out, nil
 }
 
+func (c *httpPlatformClient) EnsureThread(req ThreadEnsureRequest) (*ThreadEnsureResult, error) {
+	if req.AgentID <= 0 {
+		return nil, errors.New("EnsureThread: agent_id required")
+	}
+	if strings.TrimSpace(req.ThreadID) == "" {
+		return nil, errors.New("EnsureThread: thread_id required")
+	}
+	var out ThreadEnsureResult
+	if err := c.post("/api/apps/callback/threads/ensure", req, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
 // KillThread hits /api/apps/callback/threads/{id} with DELETE.
 // Idempotent — 404 on unknown id is treated as success because the
 // caller's intent (no live thread by this name) is already satisfied.
@@ -930,6 +944,13 @@ func (p *projectScopedClient) SpawnThread(req ThreadSpawnRequest) (*ThreadSpawnR
 		return nil, errors.New("thread API unavailable")
 	}
 	return client.SpawnThread(req)
+}
+func (p *projectScopedClient) EnsureThread(req ThreadEnsureRequest) (*ThreadEnsureResult, error) {
+	client, ok := p.inner.(ThreadProfileClient)
+	if !ok {
+		return nil, errors.New("thread profile API unavailable")
+	}
+	return client.EnsureThread(req)
 }
 func (p *projectScopedClient) RenewRealtimeAudioBridge(agentID int64, threadID string) (*RealtimeSpawnResult, error) {
 	return p.inner.RenewRealtimeAudioBridge(agentID, threadID)

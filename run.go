@@ -559,6 +559,7 @@ type mcpHandler struct {
 // supply it through an ordinary app MCP proxy.
 const HeaderBoundCallerInstallID = "X-Apteva-Bound-Caller-Install-ID"
 const HeaderBoundCallerAppName = "X-Apteva-Bound-Caller-App-Name"
+const HeaderMCPProfile = "X-Apteva-MCP-Profile"
 
 func newMCPHandler(app App, ctx *AppCtx) http.Handler {
 	tools := app.MCPTools()
@@ -618,14 +619,15 @@ func (h *mcpHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	case "tools/list":
 		out := make([]map[string]any, 0, len(h.tools))
 		for _, t := range h.tools {
-			if h.toolExposure(t) == ToolExposureAppOnly {
+			if h.toolExposure(t) == ToolExposureAppOnly || !h.profileAllows(r, t.Name) {
 				continue
 			}
 			entry := map[string]any{
 				"name": t.Name, "description": t.Description, "inputSchema": t.InputSchema,
 			}
-			if len(t.Meta) > 0 {
-				entry["_meta"] = t.Meta
+			meta := h.toolMeta(t)
+			if len(meta) > 0 {
+				entry["_meta"] = meta
 			}
 			out = append(out, entry)
 		}
@@ -641,7 +643,7 @@ func (h *mcpHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 				break
 			}
 		}
-		if matched == nil {
+		if matched == nil || !h.profileAllows(r, name) {
 			writeMCPErr(w, req.ID, -32601, "tool not found: "+name)
 			return
 		}
@@ -760,6 +762,8 @@ func (h *mcpHandler) buildCaller(r *http.Request) *Caller {
 	return &Caller{
 		AgentID:          id,
 		ThreadID:         strings.TrimSpace(r.Header.Get("X-Apteva-Caller-Thread")),
+		ThreadRole:       strings.TrimSpace(r.Header.Get("X-Apteva-Caller-Thread-Role")),
+		ToolCallID:       strings.TrimSpace(r.Header.Get("X-Apteva-Tool-Call-ID")),
 		ProjectID:        strings.TrimSpace(r.Header.Get("X-Apteva-Project-ID")),
 		AppInstallID:     boundAppID,
 		AppName:          boundAppName,
@@ -772,6 +776,41 @@ func (h *mcpHandler) buildCaller(r *http.Request) *Caller {
 		DefaultEffect:    resp.DefaultEffect,
 		Resources:        h.ctx.Manifest().Provides.Resources,
 	}
+}
+
+func (h *mcpHandler) profileAllows(r *http.Request, toolName string) bool {
+	profileName := strings.TrimSpace(r.Header.Get(HeaderMCPProfile))
+	if profileName == "" {
+		return true
+	}
+	for _, profile := range h.ctx.Manifest().Provides.MCPProfiles {
+		if profile.Name != profileName {
+			continue
+		}
+		for _, allowed := range profile.Tools {
+			if allowed == toolName {
+				return true
+			}
+		}
+		return false
+	}
+	// A requested unknown profile fails closed.
+	return false
+}
+
+func (h *mcpHandler) toolMeta(tool Tool) map[string]any {
+	merged := make(map[string]any, len(tool.Meta))
+	for key, value := range tool.Meta {
+		merged[key] = value
+	}
+	if spec := h.toolSpec(tool.Name); spec != nil {
+		for key, value := range spec.Meta {
+			if _, exists := merged[key]; !exists {
+				merged[key] = value
+			}
+		}
+	}
+	return merged
 }
 
 // toolSpec finds the manifest spec for a runtime tool by name.

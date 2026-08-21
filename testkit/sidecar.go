@@ -177,6 +177,24 @@ func (s *Sidecar) MCPAs(tool string, args map[string]any, agentID int64, threadI
 	return res
 }
 
+// MCPAsCall is MCPAs with the platform-owned thread role and tool-call
+// identity headers used by role enforcement and exactly-once app effects.
+func (s *Sidecar) MCPAsCall(tool string, args map[string]any, agentID int64, threadID, threadRole, toolCallID, projectID string) map[string]any {
+	s.t.Helper()
+	headers := map[string]string{
+		"X-Apteva-Caller-Agent":       strconv.FormatInt(agentID, 10),
+		"X-Apteva-Caller-Thread":      threadID,
+		"X-Apteva-Caller-Thread-Role": threadRole,
+		"X-Apteva-Tool-Call-ID":       toolCallID,
+		"X-Apteva-Project-ID":         projectID,
+	}
+	res, err := s.mcpRaw("tools/call", map[string]any{"name": tool, "arguments": args}, headers)
+	if err != nil {
+		s.t.Fatalf("testkit: MCPAsCall %q: %v", tool, err)
+	}
+	return res
+}
+
 // MCPRaw exposes the JSON-RPC layer for tests that need to assert
 // exact MCP response shapes (errors, non-tools-call methods, etc.).
 func (s *Sidecar) MCPRaw(method string, params map[string]any) (map[string]any, error) {

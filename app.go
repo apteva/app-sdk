@@ -1050,6 +1050,14 @@ type ThreadClient interface {
 	KillThread(agentID int64, threadID string) error
 }
 
+// ThreadProfileClient is the optional reconciliation surface for apps that
+// own long-lived threads. EnsureThread atomically reconciles the desired
+// directive/tools/MCP profile and queues stable events. Older servers may
+// return an unsupported error; callers should fall back to SpawnThread.
+type ThreadProfileClient interface {
+	EnsureThread(req ThreadEnsureRequest) (*ThreadEnsureResult, error)
+}
+
 // PlatformBackupClient is the privileged, streaming platform-backup surface.
 // Server authorization requires a global, active, admin-owned installation
 // with the matching approved permission for each operation.
@@ -1627,6 +1635,22 @@ type ThreadSpawnResult struct {
 	Status string             `json:"status"`
 	Thread ThreadRef          `json:"thread"`
 	Events ThreadEventReceipt `json:"events,omitempty"`
+}
+
+type ThreadEnsureRequest struct {
+	ThreadSpawnRequest
+	// ProfileHash is an app-computed stable hash of the complete desired
+	// directive/tool/MCP profile. The platform may use it to avoid an inspect
+	// and update round trip when the live profile already matches.
+	ProfileHash string `json:"profile_hash,omitempty"`
+}
+
+type ThreadEnsureResult struct {
+	Status      string             `json:"status"`
+	Thread      ThreadRef          `json:"thread"`
+	Events      ThreadEventReceipt `json:"events,omitempty"`
+	ProfileHash string             `json:"profile_hash,omitempty"`
+	Reconciled  bool               `json:"reconciled,omitempty"`
 }
 
 // PlatformAgent is the canonical type name for the entity formerly

@@ -280,6 +280,35 @@ func TestSpawnThreadEventlessRequestRemainsCompatible(t *testing.T) {
 	}
 }
 
+func TestEnsureThreadReconcilesProfileAndEvents(t *testing.T) {
+	eventID := "conversation:1:message:2:agent:3"
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost || r.URL.Path != "/api/apps/callback/threads/ensure" {
+			http.NotFound(w, r)
+			return
+		}
+		var req ThreadEnsureRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			t.Fatal(err)
+		}
+		if req.AgentID != 3 || req.ThreadID != "chat-1" || req.ProfileHash != "hash-1" || len(req.Events) != 1 {
+			t.Fatalf("request=%+v", req)
+		}
+		_ = json.NewEncoder(w).Encode(ThreadEnsureResult{Status: "updated", Reconciled: true,
+			Thread: ThreadRef{AgentID: 3, ThreadID: "chat-1"}, ProfileHash: "hash-1",
+			Events: ThreadEventReceipt{Accepted: []string{eventID}}})
+	}))
+	defer ts.Close()
+	client := newHTTPPlatformClient(ts.URL, "test-token").(ThreadProfileClient)
+	result, err := client.EnsureThread(ThreadEnsureRequest{ThreadSpawnRequest: ThreadSpawnRequest{
+		AgentID: 3, ThreadID: "chat-1", DirectiveSuffix: "reply here",
+		Events: []ThreadEvent{{ID: eventID, Message: "hello"}},
+	}, ProfileHash: "hash-1"})
+	if err != nil || !result.Reconciled || result.ProfileHash != "hash-1" || len(result.Events.Accepted) != 1 {
+		t.Fatalf("result=%+v err=%v", result, err)
+	}
+}
+
 func TestListIngressRoutesDecodesNativeCertificateStatus(t *testing.T) {
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet || r.URL.Path != "/api/apps/callback/ingress/routes" {
