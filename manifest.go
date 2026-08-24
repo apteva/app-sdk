@@ -251,13 +251,8 @@ type RequiredAppRef struct {
 // Provides describes the surfaces this app contributes back to the
 // platform — none, one, or many.
 type Provides struct {
-	HTTPRoutes []RouteSpec   `yaml:"http_routes" json:"http_routes"`
-	MCPTools   []MCPToolSpec `yaml:"mcp_tools" json:"mcp_tools"`
-	// MCPProfiles project one app's tools into role-specific MCP surfaces.
-	// The sidecar still exposes one endpoint; the platform selects a profile
-	// with X-Apteva-MCP-Profile. Empty preserves the historical all-public-tools
-	// surface.
-	MCPProfiles     []MCPProfileSpec `yaml:"mcp_profiles,omitempty" json:"mcp_profiles,omitempty"`
+	HTTPRoutes      []RouteSpec      `yaml:"http_routes" json:"http_routes"`
+	MCPTools        []MCPToolSpec    `yaml:"mcp_tools" json:"mcp_tools"`
 	PromptFragments []PromptFragment `yaml:"prompt_fragments" json:"prompt_fragments"`
 	UIPanels        []UIPanel        `yaml:"ui_panels" json:"ui_panels"`
 	UIComponents    []UIComponent    `yaml:"ui_components,omitempty" json:"ui_components,omitempty"`
@@ -535,15 +530,6 @@ type MCPToolSpec struct {
 	// not supply that key itself. It supports protocol extensions such as
 	// io.apteva/wakeOnResult without hard-coding them into the SDK.
 	Meta map[string]any `yaml:"meta,omitempty" json:"meta,omitempty"`
-}
-
-// MCPProfileSpec is a named allowlist over Provides.MCPTools. A server can
-// mount several aliases for one app installation while keeping authorization
-// and storage in the app. App-only tools may not be included.
-type MCPProfileSpec struct {
-	Name        string   `yaml:"name" json:"name"`
-	Description string   `yaml:"description,omitempty" json:"description,omitempty"`
-	Tools       []string `yaml:"tools" json:"tools"`
 }
 
 // AsyncResultSpec describes platform-managed notification behavior for
@@ -1428,34 +1414,6 @@ func validateProvidedPermissions(p *Provides) error {
 		}
 		// ResourceFrom is informational at parse time — substitution
 		// happens at call time. Anything goes here.
-	}
-	toolNames := make(map[string]ToolExposure, len(p.MCPTools))
-	for _, tool := range p.MCPTools {
-		toolNames[tool.Name] = tool.Exposure
-	}
-	profileNames := make(map[string]struct{}, len(p.MCPProfiles))
-	for _, profile := range p.MCPProfiles {
-		if !isSlug(profile.Name) {
-			return fmt.Errorf("provides.mcp_profiles[%q].name must be a lowercase slug", profile.Name)
-		}
-		if _, duplicate := profileNames[profile.Name]; duplicate {
-			return fmt.Errorf("provides.mcp_profiles: duplicate name %q", profile.Name)
-		}
-		profileNames[profile.Name] = struct{}{}
-		seen := map[string]struct{}{}
-		for _, name := range profile.Tools {
-			exposure, exists := toolNames[name]
-			if !exists {
-				return fmt.Errorf("provides.mcp_profiles[%q] references unknown tool %q", profile.Name, name)
-			}
-			if exposure == ToolExposureAppOnly {
-				return fmt.Errorf("provides.mcp_profiles[%q] includes app_only tool %q", profile.Name, name)
-			}
-			if _, duplicate := seen[name]; duplicate {
-				return fmt.Errorf("provides.mcp_profiles[%q] repeats tool %q", profile.Name, name)
-			}
-			seen[name] = struct{}{}
-		}
 	}
 	return nil
 }

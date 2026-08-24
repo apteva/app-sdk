@@ -559,7 +559,6 @@ type mcpHandler struct {
 // supply it through an ordinary app MCP proxy.
 const HeaderBoundCallerInstallID = "X-Apteva-Bound-Caller-Install-ID"
 const HeaderBoundCallerAppName = "X-Apteva-Bound-Caller-App-Name"
-const HeaderMCPProfile = "X-Apteva-MCP-Profile"
 
 func newMCPHandler(app App, ctx *AppCtx) http.Handler {
 	tools := app.MCPTools()
@@ -619,7 +618,7 @@ func (h *mcpHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	case "tools/list":
 		out := make([]map[string]any, 0, len(h.tools))
 		for _, t := range h.tools {
-			if h.toolExposure(t) == ToolExposureAppOnly || !h.profileAllows(r, t.Name) {
+			if h.toolExposure(t) == ToolExposureAppOnly {
 				continue
 			}
 			entry := map[string]any{
@@ -643,7 +642,7 @@ func (h *mcpHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 				break
 			}
 		}
-		if matched == nil || !h.profileAllows(r, name) {
+		if matched == nil {
 			writeMCPErr(w, req.ID, -32601, "tool not found: "+name)
 			return
 		}
@@ -776,26 +775,6 @@ func (h *mcpHandler) buildCaller(r *http.Request) *Caller {
 		DefaultEffect:    resp.DefaultEffect,
 		Resources:        h.ctx.Manifest().Provides.Resources,
 	}
-}
-
-func (h *mcpHandler) profileAllows(r *http.Request, toolName string) bool {
-	profileName := strings.TrimSpace(r.Header.Get(HeaderMCPProfile))
-	if profileName == "" {
-		return true
-	}
-	for _, profile := range h.ctx.Manifest().Provides.MCPProfiles {
-		if profile.Name != profileName {
-			continue
-		}
-		for _, allowed := range profile.Tools {
-			if allowed == toolName {
-				return true
-			}
-		}
-		return false
-	}
-	// A requested unknown profile fails closed.
-	return false
 }
 
 func (h *mcpHandler) toolMeta(tool Tool) map[string]any {
