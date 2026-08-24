@@ -276,6 +276,87 @@ func (c *AppCtx) PlatformBackupAPI() PlatformBackupClient {
 	return backupAPI
 }
 
+// BrowserOriginsAPI returns the optional server-managed browser-origin
+// capability. It is separate from PlatformClient so adding this feature does
+// not break existing apps or test doubles that implement PlatformClient.
+//
+// The default HTTP-backed AppCtx provides it when connected to a server that
+// exposes /api/apps/callback/cors-origins. Older/custom clients return nil.
+func (c *AppCtx) BrowserOriginsAPI() BrowserOriginClient {
+	if c == nil || c.platform == nil {
+		return nil
+	}
+	if scoped, ok := c.platform.(*projectScopedClient); ok {
+		originAPI, _ := scoped.inner.(BrowserOriginClient)
+		return originAPI
+	}
+	originAPI, _ := c.platform.(BrowserOriginClient)
+	return originAPI
+}
+
+// BrowserOriginPolicyAPI returns the optional policy-aware browser-origin
+// capability. It complements BrowserOriginsAPI without expanding
+// PlatformClient or BrowserOriginClient, preserving compatibility with apps
+// and test doubles compiled against the origin-only API.
+func (c *AppCtx) BrowserOriginPolicyAPI() BrowserOriginPolicyClient {
+	if c == nil || c.platform == nil {
+		return nil
+	}
+	if scoped, ok := c.platform.(*projectScopedClient); ok {
+		policyAPI, _ := scoped.inner.(BrowserOriginPolicyClient)
+		return policyAPI
+	}
+	policyAPI, _ := c.platform.(BrowserOriginPolicyClient)
+	return policyAPI
+}
+
+// ReplaceBrowserOrigins atomically replaces the exact browser origins owned by
+// registrationKey. Apps should use a stable key such as an OAuth client id and
+// call this after creating or updating that client. Passing an empty slice
+// removes the registration.
+func (c *AppCtx) ReplaceBrowserOrigins(registrationKey string, origins []string) (*BrowserOriginRegistration, error) {
+	api := c.BrowserOriginsAPI()
+	if api == nil {
+		return nil, errors.New("platform does not support browser-origin registration")
+	}
+	return api.ReplaceBrowserOrigins(registrationKey, origins)
+}
+
+// ReplaceBrowserOriginPolicy atomically replaces an app-owned origin set and
+// its preflight policy. Use BrowserPreflightApp when the sidecar must decide
+// route-specific methods or headers; BrowserPreflightPlatform is the safe
+// default for ordinary public clients. Credentials is enforced by the
+// platform, including as an upper bound on delegated app responses.
+func (c *AppCtx) ReplaceBrowserOriginPolicy(registrationKey string, policy BrowserOriginPolicy) (*BrowserOriginRegistration, error) {
+	api := c.BrowserOriginPolicyAPI()
+	if api == nil {
+		return nil, errors.New("platform does not support browser-origin policies")
+	}
+	return api.ReplaceBrowserOriginPolicy(registrationKey, policy)
+}
+
+// DeleteBrowserOrigins removes every origin owned by registrationKey. It is
+// idempotent and should be called when the corresponding app client is disabled
+// or deleted.
+func (c *AppCtx) DeleteBrowserOrigins(registrationKey string) error {
+	api := c.BrowserOriginsAPI()
+	if api == nil {
+		return errors.New("platform does not support browser-origin registration")
+	}
+	return api.DeleteBrowserOrigins(registrationKey)
+}
+
+// ListBrowserOriginRegistrations returns the complete install-scoped registry.
+// Apps can use this during OnMount to reconcile client records created before
+// the platform supported live origin registration.
+func (c *AppCtx) ListBrowserOriginRegistrations() ([]BrowserOriginRegistration, error) {
+	api := c.BrowserOriginsAPI()
+	if api == nil {
+		return nil, errors.New("platform does not support browser-origin registration")
+	}
+	return api.ListBrowserOriginRegistrations()
+}
+
 // PlatformInfo is the shortcut for c.PlatformAPI().PlatformInfo() —
 // the same convenience pattern as ctx.GetInstance / WhoAmI. Returns
 // the current platform-level facts (public_url, version) with the
@@ -1068,6 +1149,81 @@ type PlatformBackupClient interface {
 	// RestorePlatformSnapshot streams a gzip snapshot into the platform. Pass
 	// -1 when the content length is unknown and chunked transfer is required.
 	RestorePlatformSnapshot(ctx context.Context, body io.Reader, size int64) (map[string]any, error)
+}
+
+// BrowserOriginRegistration is one app-owned public-client origin set. Key is
+// an opaque, stable identifier chosen by the app (typically an OAuth/API client
+// id). Origins contain exact HTTP(S) origins; wildcard registrations are not
+// supported by the platform.
+type BrowserOriginRegistration struct {
+	Key         string               `json:"key"`
+	Origins     []string             `json:"origins"`
+	Preflight   BrowserPreflightMode `json:"preflight"`
+	Credentials bool                 `json:"credentials"`
+}
+
+// UnmarshalJSON preserves the behavior of servers released before browser
+// origin policies: omitted policy fields mean platform-managed preflight with
+// credentialed requests allowed.
+func (r *BrowserOriginRegistration) UnmarshalJSON(data []byte) error {
+	type wireRegistration struct {
+		Key         string               `json:"key"`
+		Origins     []string             `json:"origins"`
+		Preflight   BrowserPreflightMode `json:"preflight"`
+		Credentials *bool                `json:"credentials"`
+	}
+	var wire wireRegistration
+	if err := json.Unmarshal(data, &wire); err != nil {
+		return err
+	}
+	r.Key = wire.Key
+	r.Origins = wire.Origins
+	r.Preflight = wire.Preflight
+	if r.Preflight == "" {
+		r.Preflight = BrowserPreflightPlatform
+	}
+	r.Credentials = true
+	if wire.Credentials != nil {
+		r.Credentials = *wire.Credentials
+	}
+	return nil
+}
+
+// BrowserPreflightMode selects who answers an authorized browser preflight.
+type BrowserPreflightMode string
+
+const (
+	// BrowserPreflightPlatform lets Apteva answer OPTIONS generically.
+	BrowserPreflightPlatform BrowserPreflightMode = "platform"
+	// BrowserPreflightApp delegates OPTIONS to the app after Apteva verifies
+	// that the request origin belongs to the registration.
+	BrowserPreflightApp BrowserPreflightMode = "app"
+)
+
+// BrowserOriginPolicy is the complete desired policy for one app-owned
+// browser client. Origins must be exact HTTP(S) origins; wildcards are not
+// supported. An empty Preflight value defaults to BrowserPreflightPlatform.
+type BrowserOriginPolicy struct {
+	Origins     []string             `json:"origins"`
+	Preflight   BrowserPreflightMode `json:"preflight"`
+	Credentials bool                 `json:"credentials"`
+}
+
+// BrowserOriginClient is the optional live CORS registration surface exposed
+// by current Apteva servers. The platform scopes every operation to the
+// authenticated app install and only applies the origins to that app's proxy
+// routes. It does not modify the operator's global CORS_ORIGIN configuration.
+type BrowserOriginClient interface {
+	ReplaceBrowserOrigins(registrationKey string, origins []string) (*BrowserOriginRegistration, error)
+	DeleteBrowserOrigins(registrationKey string) error
+	ListBrowserOriginRegistrations() ([]BrowserOriginRegistration, error)
+}
+
+// BrowserOriginPolicyClient is the optional extension for apps that need
+// route-aware preflight handling or explicit credential control. Keeping it
+// separate from BrowserOriginClient avoids breaking existing implementations.
+type BrowserOriginPolicyClient interface {
+	ReplaceBrowserOriginPolicy(registrationKey string, policy BrowserOriginPolicy) (*BrowserOriginRegistration, error)
 }
 
 // PlatformInfo is the small "what does the operator have configured at

@@ -180,6 +180,84 @@ func (c *httpPlatformClient) PlatformInfo() (*PlatformInfo, error) {
 	return &fresh, nil
 }
 
+func browserOriginRegistrationPath(registrationKey string) (string, error) {
+	registrationKey = strings.TrimSpace(registrationKey)
+	if registrationKey == "" {
+		return "", errors.New("browser-origin registration key is required")
+	}
+	if strings.ContainsAny(registrationKey, "/\\") {
+		return "", errors.New("browser-origin registration key cannot contain slashes")
+	}
+	return "/api/apps/callback/cors-origins/" + url.PathEscape(registrationKey), nil
+}
+
+// ReplaceBrowserOrigins atomically replaces one app-owned client's origin set.
+// The app install token is attached by put; server-side changes are visible to
+// the next browser preflight without restarting Apteva or the sidecar.
+func (c *httpPlatformClient) ReplaceBrowserOrigins(registrationKey string, origins []string) (*BrowserOriginRegistration, error) {
+	path, err := browserOriginRegistrationPath(registrationKey)
+	if err != nil {
+		return nil, err
+	}
+	// Keep the wire shape deterministic: an empty set is [] rather than null.
+	wanted := append([]string{}, origins...)
+	var out BrowserOriginRegistration
+	if err := c.put(path, map[string]any{"origins": wanted}, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// ReplaceBrowserOriginPolicy atomically replaces an app-owned origin set and
+// its preflight/credential policy. The response is verified so an older server
+// cannot silently ignore policy fields and report a misleading success.
+func (c *httpPlatformClient) ReplaceBrowserOriginPolicy(registrationKey string, policy BrowserOriginPolicy) (*BrowserOriginRegistration, error) {
+	path, err := browserOriginRegistrationPath(registrationKey)
+	if err != nil {
+		return nil, err
+	}
+	if policy.Preflight == "" {
+		policy.Preflight = BrowserPreflightPlatform
+	}
+	if policy.Preflight != BrowserPreflightPlatform && policy.Preflight != BrowserPreflightApp {
+		return nil, fmt.Errorf("invalid browser preflight mode %q", policy.Preflight)
+	}
+	// Keep the wire shape deterministic: an empty set is [] rather than null.
+	policy.Origins = append([]string{}, policy.Origins...)
+	var out BrowserOriginRegistration
+	if err := c.put(path, policy, &out); err != nil {
+		return nil, err
+	}
+	if out.Preflight != policy.Preflight || out.Credentials != policy.Credentials {
+		return nil, fmt.Errorf(
+			"platform did not apply requested browser-origin policy (wanted preflight=%q credentials=%t, got preflight=%q credentials=%t); upgrade the Apteva server",
+			policy.Preflight, policy.Credentials, out.Preflight, out.Credentials,
+		)
+	}
+	return &out, nil
+}
+
+func (c *httpPlatformClient) DeleteBrowserOrigins(registrationKey string) error {
+	path, err := browserOriginRegistrationPath(registrationKey)
+	if err != nil {
+		return err
+	}
+	return c.delete(path, nil)
+}
+
+func (c *httpPlatformClient) ListBrowserOriginRegistrations() ([]BrowserOriginRegistration, error) {
+	var envelope struct {
+		Registrations []BrowserOriginRegistration `json:"registrations"`
+	}
+	if err := c.get("/api/apps/callback/cors-origins", &envelope); err != nil {
+		return nil, err
+	}
+	if envelope.Registrations == nil {
+		envelope.Registrations = []BrowserOriginRegistration{}
+	}
+	return envelope.Registrations, nil
+}
+
 func (c *httpPlatformClient) GetConnection(id int64) (*PlatformConnection, error) {
 	var out PlatformConnection
 	if err := c.get("/api/apps/callback/connections/"+strconv.FormatInt(id, 10), &out); err != nil {
