@@ -133,6 +133,30 @@ provides:
 	}
 }
 
+func TestManifestAcceptsAttachedBuildContribution(t *testing.T) {
+	manifest, err := ParseManifest([]byte(`
+schema: apteva-app/v1
+name: conversations
+version: 1.0.0
+provides:
+  ui_components:
+    - name: agent-conversations
+      entry: /ui/AgentConversationsWidget.mjs
+      slots: [dashboard.build]
+      suggested: true
+      visibility: attached
+      supported_sizes: [full]
+      default_size: full
+`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	component := manifest.Provides.UIComponents[0]
+	if len(component.Slots) != 1 || component.Slots[0] != UIComponentSlotDashboardBuild {
+		t.Fatalf("component=%+v", component)
+	}
+}
+
 func TestManifestRejectsInvalidUIComponentPlacement(t *testing.T) {
 	for name, fragment := range map[string]string{
 		"unknown slot":              `slots: [dashboard.unknown]`,

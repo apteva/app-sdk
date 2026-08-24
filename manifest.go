@@ -28,6 +28,7 @@ const (
 
 	UIComponentSlotChatMessageAttachment  = "chat.message_attachment"
 	UIComponentSlotDashboardHome          = "dashboard.home"
+	UIComponentSlotDashboardBuild         = "dashboard.build"
 	UIComponentSlotDashboardAgentCard     = "dashboard.agent_card"
 	UIComponentSlotDashboardAgentDetail   = "dashboard.agent_detail"
 	UIComponentSlotDashboardThreadSidebar = "dashboard.thread_sidebar"
@@ -398,6 +399,7 @@ type Skill struct {
 //
 //	chat.message_attachment   — under an agent message in chat
 //	dashboard.home           — configurable project-home widget
+//	dashboard.build          — full Build workspace for one attached agent
 //	dashboard.agent_card     — compact contribution inside an agent card
 //	dashboard.agent_detail   — contribution on an agent detail page
 //	dashboard.thread_sidebar — contribution beside any opaque agent thread
@@ -1164,6 +1166,7 @@ func validateUIComponents(components []UIComponent) error {
 	knownSlots := map[string]bool{
 		UIComponentSlotChatMessageAttachment:  true,
 		UIComponentSlotDashboardHome:          true,
+		UIComponentSlotDashboardBuild:         true,
 		UIComponentSlotDashboardAgentCard:     true,
 		UIComponentSlotDashboardAgentDetail:   true,
 		UIComponentSlotDashboardThreadSidebar: true,
