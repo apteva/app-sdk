@@ -974,6 +974,10 @@ const (
 	// telemetry exposes directives, tool arguments, and model output in
 	// flight, and the consent screen should say so explicitly.
 	PermTelemetryRead Permission = "platform.telemetry.read"
+	// PermTemplatesRead lets an app read portable built-in and project-owned
+	// template definitions for projects visible to its installation. Template
+	// definitions contain configuration only, never credentials or runtime data.
+	PermTemplatesRead Permission = "platform.templates.read"
 )
 
 // AllPermissions returns the full taxonomy — used by the dashboard's
@@ -996,6 +1000,7 @@ func AllPermissions() []Permission {
 		PermDNSRead, PermDNSWrite,
 		PermPlatformBackupRead, PermPlatformBackupRestore,
 		PermTelemetryRead,
+		PermTemplatesRead,
 	}
 }
 
@@ -1011,6 +1016,8 @@ func PermissionDescription(permission Permission) string {
 		return "Restore a platform backup, replacing app data and staging the platform database for restart."
 	case PermTelemetryRead:
 		return "Subscribe to live telemetry (thoughts, tool calls, streaming output) from agents you own."
+	case PermTemplatesRead:
+		return "Read built-in and project-owned setup templates, including agent, app, and Home widget configuration."
 	default:
 		return string(permission)
 	}

@@ -139,6 +139,22 @@ conn, err := ctx.PlatformAPI().GetConnection(42)
 err = ctx.PlatformAPI().SendEvent(instanceID, "process file 1773780")
 ```
 
+Apps that declare `platform.templates.read` can inspect the portable setup
+templates available to a project. A project-scoped context accepts an empty
+project ID and pins the request to its current project:
+
+```go
+templates := ctx.ProjectTemplatesAPI()
+items, err := templates.ListProjectTemplates("", sdk.ProjectTemplateListOptions{
+	IncludeSystem: true,
+})
+definition, err := items[0].DecodeProjectSetup()
+```
+
+This capability is read-only. The generic `ProjectTemplate.Definition` keeps
+future template kinds forward-compatible; `DecodeProjectSetup` provides the
+typed contract for the current `project_setup` kind.
+
 ## DB
 
 Declare a `db:` block in the manifest and the framework will:

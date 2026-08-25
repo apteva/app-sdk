@@ -310,6 +310,24 @@ func (c *AppCtx) BrowserOriginPolicyAPI() BrowserOriginPolicyClient {
 	return policyAPI
 }
 
+// ProjectTemplatesAPI returns the optional read-only project-template
+// capability. WithProject scopes the returned client so an app cannot
+// accidentally request a sibling project's templates.
+func (c *AppCtx) ProjectTemplatesAPI() ProjectTemplateClient {
+	if c == nil || c.platform == nil {
+		return nil
+	}
+	if scoped, ok := c.platform.(*projectScopedClient); ok {
+		inner, available := scoped.inner.(ProjectTemplateClient)
+		if !available {
+			return nil
+		}
+		return &projectScopedTemplateClient{inner: inner, projectID: scoped.projectID}
+	}
+	templates, _ := c.platform.(ProjectTemplateClient)
+	return templates
+}
+
 // ReplaceBrowserOrigins atomically replaces the exact browser origins owned by
 // registrationKey. Apps should use a stable key such as an OAuth client id and
 // call this after creating or updating that client. Passing an empty slice

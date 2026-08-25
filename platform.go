@@ -556,6 +556,44 @@ func (c *httpPlatformClient) ListProjects() ([]PlatformProject, error) {
 	return out, nil
 }
 
+func (c *httpPlatformClient) ListProjectTemplates(projectID string, options ProjectTemplateListOptions) ([]ProjectTemplate, error) {
+	projectID = strings.TrimSpace(projectID)
+	if projectID == "" {
+		return nil, errors.New("ListProjectTemplates: project id required")
+	}
+	query := url.Values{"project_id": []string{projectID}}
+	if options.IncludeSystem {
+		query.Set("include_system", "true")
+	}
+	var out struct {
+		Templates []ProjectTemplate `json:"templates"`
+	}
+	if err := c.get("/api/apps/callback/templates?"+query.Encode(), &out); err != nil {
+		return nil, err
+	}
+	if out.Templates == nil {
+		out.Templates = []ProjectTemplate{}
+	}
+	return out.Templates, nil
+}
+
+func (c *httpPlatformClient) GetProjectTemplate(projectID, templateID string) (*ProjectTemplate, error) {
+	projectID = strings.TrimSpace(projectID)
+	templateID = strings.TrimSpace(templateID)
+	if projectID == "" {
+		return nil, errors.New("GetProjectTemplate: project id required")
+	}
+	if templateID == "" || strings.ContainsAny(templateID, `/\\`) {
+		return nil, errors.New("GetProjectTemplate: valid template id required")
+	}
+	query := url.Values{"project_id": []string{projectID}}
+	var out ProjectTemplate
+	if err := c.get("/api/apps/callback/templates/"+url.PathEscape(templateID)+"?"+query.Encode(), &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
 func (c *httpPlatformClient) ExposeIngress(req IngressExposeRequest) (*IngressRoute, error) {
 	var out struct {
 		Route IngressRoute `json:"route"`
