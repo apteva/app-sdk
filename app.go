@@ -261,6 +261,22 @@ func (c *AppCtx) RuntimeAPI() RuntimeClient {
 	return runtimeAPI
 }
 
+// AgentToolsAPI returns the optional capability for attaching the calling
+// app's MCP tools, and selected declared app dependencies, to an agent. It is
+// separate from PlatformClient so existing app test doubles remain source
+// compatible. Authorization and target scoping are enforced by the server.
+func (c *AppCtx) AgentToolsAPI() AgentToolsClient {
+	if c == nil || c.platform == nil {
+		return nil
+	}
+	if scoped, ok := c.platform.(*projectScopedClient); ok {
+		agentTools, _ := scoped.inner.(AgentToolsClient)
+		return agentTools
+	}
+	agentTools, _ := c.platform.(AgentToolsClient)
+	return agentTools
+}
+
 // PlatformBackupAPI returns the optional full-platform backup capability.
 // Keeping this privileged streaming surface separate from PlatformClient
 // avoids breaking every app test double when backup operations evolve.

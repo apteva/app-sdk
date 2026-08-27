@@ -1018,6 +1018,8 @@ func PermissionDescription(permission Permission) string {
 		return "Subscribe to live telemetry (thoughts, tool calls, streaming output) from agents you own."
 	case PermTemplatesRead:
 		return "Read built-in and project-owned setup templates, including agent, app, and Home widget configuration."
+	case PermMCPAttach:
+		return "Attach this app's MCP tools, and explicitly declared app dependencies, to agents in the installation scope."
 	default:
 		return string(permission)
 	}
