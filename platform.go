@@ -886,10 +886,9 @@ func (c *httpPlatformClient) KillThread(agentID int64, threadID string) error {
 // from a global install thus carries the dispatcher's current project
 // without anyone touching the call site.
 //
-// Every other method passes straight through — the project hint
-// affects only the two app-to-app entry points, which are the only
-// surface where downstream code needs to know which project the call
-// is on behalf of.
+// Most other methods pass straight through. Ordinary thread spawn/ensure also
+// inherit this project when the request does not provide one, so a global app
+// can preserve trusted project context on app-owned threads.
 type projectScopedClient struct {
 	inner     PlatformClient
 	projectID string
@@ -1059,12 +1058,18 @@ func (p *projectScopedClient) SpawnThread(req ThreadSpawnRequest) (*ThreadSpawnR
 	if !ok {
 		return nil, errors.New("thread API unavailable")
 	}
+	if req.ProjectID == "" {
+		req.ProjectID = p.projectID
+	}
 	return client.SpawnThread(req)
 }
 func (p *projectScopedClient) EnsureThread(req ThreadEnsureRequest) (*ThreadEnsureResult, error) {
 	client, ok := p.inner.(ThreadProfileClient)
 	if !ok {
 		return nil, errors.New("thread profile API unavailable")
+	}
+	if req.ProjectID == "" {
+		req.ProjectID = p.projectID
 	}
 	return client.EnsureThread(req)
 }

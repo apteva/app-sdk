@@ -224,6 +224,9 @@ func TestOpaqueThreadRequestsPreserveTargetAndStructuredMessage(t *testing.T) {
 			if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 				t.Fatal(err)
 			}
+			if body.ProjectID != "project-7" {
+				t.Fatalf("spawn project_id=%q, want project-7", body.ProjectID)
+			}
 			if body.AgentID != 42 || body.ThreadID != "opaque-run-9" || body.DirectiveSuffix != "Do the app-owned work" {
 				t.Fatalf("spawn body=%+v", body)
 			}
@@ -246,7 +249,7 @@ func TestOpaqueThreadRequestsPreserveTargetAndStructuredMessage(t *testing.T) {
 		t.Fatal(err)
 	}
 	result, err := client.SpawnThread(ThreadSpawnRequest{
-		AgentID: 42, ThreadID: "opaque-run-9", DirectiveSuffix: "Do the app-owned work",
+		AgentID: 42, ThreadID: "opaque-run-9", ProjectID: "project-7", DirectiveSuffix: "Do the app-owned work",
 		Events: []ThreadEvent{{ID: eventID, Message: "Hello"}},
 	})
 	if err != nil {

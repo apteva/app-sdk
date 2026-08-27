@@ -481,8 +481,9 @@ func (c *AppCtx) CurrentProject() string {
 // Use it to pin a project on cross-call boundaries (e.g. the SDK's
 // worker dispatcher does this once per project per tick). The
 // PlatformClient handle is wrapped so subsequent CallApp / CallAppResult
-// invocations auto-thread `_project_id` into the downstream args —
-// global apps' workers don't have to thread project context manually.
+// invocations auto-thread `_project_id` into the downstream args and ordinary
+// thread creation defaults to the same project — global apps' workers don't
+// have to thread project context manually.
 //
 // Passing "" reverts to env-driven behaviour.
 func (c *AppCtx) WithProject(projectID string) *AppCtx {
@@ -1812,8 +1813,13 @@ type ThreadEventReceipt struct {
 // Apps may persist their own creator/assignee/executor relationships using the
 // returned ThreadRef; those relationships are not platform thread types.
 type ThreadSpawnRequest struct {
-	AgentID         int64         `json:"agent_id"`
-	ThreadID        string        `json:"thread_id"`
+	AgentID  int64  `json:"agent_id"`
+	ThreadID string `json:"thread_id"`
+	// ProjectID optionally binds this thread to a validated platform project.
+	// Global agents such as platform assistants use it to keep app tool calls
+	// scoped to the project that originated the thread. The platform, not the
+	// model or tool arguments, remains authoritative for this value.
+	ProjectID       string        `json:"project_id,omitempty"`
 	DirectiveSuffix string        `json:"directive_suffix,omitempty"`
 	Tools           []string      `json:"tools,omitempty"`
 	MCP             []string      `json:"mcp,omitempty"`

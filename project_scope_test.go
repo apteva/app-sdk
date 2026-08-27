@@ -10,6 +10,22 @@ type stubProjectPlatformClient struct {
 	projects []PlatformProject
 }
 
+type stubThreadProjectPlatformClient struct {
+	*stubProjectPlatformClient
+	spawn  ThreadSpawnRequest
+	ensure ThreadEnsureRequest
+}
+
+func (s *stubThreadProjectPlatformClient) SendThreadEvent(ThreadRef, any) error { return nil }
+func (s *stubThreadProjectPlatformClient) SpawnThread(req ThreadSpawnRequest) (*ThreadSpawnResult, error) {
+	s.spawn = req
+	return &ThreadSpawnResult{Thread: ThreadRef{AgentID: req.AgentID, ThreadID: req.ThreadID}}, nil
+}
+func (s *stubThreadProjectPlatformClient) EnsureThread(req ThreadEnsureRequest) (*ThreadEnsureResult, error) {
+	s.ensure = req
+	return &ThreadEnsureResult{Thread: ThreadRef{AgentID: req.AgentID, ThreadID: req.ThreadID}}, nil
+}
+
 func (s *stubProjectPlatformClient) GetConnection(int64) (*PlatformConnection, error) {
 	return nil, nil
 }
@@ -134,5 +150,34 @@ func TestProjectScopedClientWhoAmIUsesScopedProjectMetadata(t *testing.T) {
 	}
 	if base.identity.ProjectID != "" {
 		t.Fatalf("base identity was mutated: %#v", base.identity)
+	}
+}
+
+func TestProjectScopedClientDefaultsOrdinaryThreadProject(t *testing.T) {
+	base := &stubThreadProjectPlatformClient{stubProjectPlatformClient: &stubProjectPlatformClient{}}
+	scoped := wrapPlatformWithProject(base, "proj-thread")
+
+	threads, ok := scoped.(ThreadClient)
+	if !ok {
+		t.Fatal("project-scoped client must preserve ThreadClient")
+	}
+	if _, err := threads.SpawnThread(ThreadSpawnRequest{AgentID: 7, ThreadID: "chat-1"}); err != nil {
+		t.Fatal(err)
+	}
+	if base.spawn.ProjectID != "proj-thread" {
+		t.Fatalf("spawn project_id=%q, want proj-thread", base.spawn.ProjectID)
+	}
+
+	profiles, ok := scoped.(ThreadProfileClient)
+	if !ok {
+		t.Fatal("project-scoped client must preserve ThreadProfileClient")
+	}
+	if _, err := profiles.EnsureThread(ThreadEnsureRequest{ThreadSpawnRequest: ThreadSpawnRequest{
+		AgentID: 7, ThreadID: "chat-1", ProjectID: "explicit-project",
+	}}); err != nil {
+		t.Fatal(err)
+	}
+	if base.ensure.ProjectID != "explicit-project" {
+		t.Fatalf("ensure project_id=%q, want explicit-project", base.ensure.ProjectID)
 	}
 }
