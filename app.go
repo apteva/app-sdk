@@ -109,8 +109,11 @@ type Worker struct {
 	Run      func(ctx context.Context, app *AppCtx) error
 }
 
-// EventHandler — subscription to a platform event. Platform pushes
-// events to /apps/<name>/events; framework dispatches to handlers.
+// EventHandler — subscription to a platform event. Platform pushes events to
+// /apps/<name>/events; framework dispatches to handlers. Returning an error
+// produces a non-2xx response so durable platform deliveries can be retried.
+// Handlers receiving an Event with DeliveryID must deduplicate it before
+// applying business mutations and return nil for an already-processed ID.
 type EventHandler struct {
 	Topic   string // e.g. "instance.message", "connection.created"; kept for compatibility
 	Event   string // preferred event name; falls back to Topic when empty
@@ -118,6 +121,10 @@ type EventHandler struct {
 }
 
 type Event struct {
+	// DeliveryID is a stable platform delivery identifier. When present, event
+	// handlers must process it idempotently because the platform may retry after
+	// a timeout or lost response. Agent lifecycle events use Core's transition ID.
+	DeliveryID      string         `json:"delivery_id,omitempty"`
 	Event           string         `json:"event,omitempty"`
 	Topic           string         `json:"topic,omitempty"` // compatibility alias for Event
 	SourceApp       string         `json:"source_app,omitempty"`
@@ -239,6 +246,21 @@ func (c *AppCtx) ThreadAPI() ThreadClient {
 	}
 	client, _ := c.platform.(ThreadClient)
 	return client
+}
+
+// AgentEventsAPI returns the optional durable tracked-agent-event capability.
+// It stays separate from PlatformClient so existing app test doubles do not
+// need to implement it. The default HTTP-backed client supports it.
+func (c *AppCtx) AgentEventsAPI() AgentEventClient {
+	if c == nil || c.platform == nil {
+		return nil
+	}
+	if scoped, ok := c.platform.(*projectScopedClient); ok {
+		agentEvents, _ := scoped.inner.(AgentEventClient)
+		return agentEvents
+	}
+	agentEvents, _ := c.platform.(AgentEventClient)
+	return agentEvents
 }
 
 // RuntimeAPI returns the optional isolated-runtime control client. It is kept

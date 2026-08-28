@@ -346,6 +346,7 @@ func mountFrameworkRoutes(mux *http.ServeMux, app App, ctx *AppCtx) {
 		if ev.ProjectID != "" {
 			evCtx = ctx.WithProject(ev.ProjectID)
 		}
+		matched := 0
 		for _, h := range app.EventHandlers() {
 			handlerEvent := h.Event
 			if handlerEvent == "" {
@@ -354,9 +355,16 @@ func mountFrameworkRoutes(mux *http.ServeMux, app App, ctx *AppCtx) {
 			if handlerEvent != eventName && handlerEvent != "*" {
 				continue
 			}
+			matched++
 			if err := h.Handler(evCtx, ev); err != nil {
 				evCtx.Logger().Warn("event handler error", "event", eventName, "err", err)
+				http.Error(w, "event handler failed", http.StatusInternalServerError)
+				return
 			}
+		}
+		if matched == 0 && eventName == AgentEventLifecycleEvent {
+			http.Error(w, "agent lifecycle event handler required", http.StatusUnprocessableEntity)
+			return
 		}
 		w.WriteHeader(http.StatusNoContent)
 	})
