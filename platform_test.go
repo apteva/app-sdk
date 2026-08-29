@@ -469,6 +469,60 @@ func TestManagedConnectionLifecycleUsesOptionalCapability(t *testing.T) {
 	}
 }
 
+func TestManagedTenantControlUsesOptionalCapability(t *testing.T) {
+	seen := map[string]bool{}
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Authorization") != "Bearer test-token" {
+			t.Fatalf("Authorization=%q", r.Header.Get("Authorization"))
+		}
+		switch {
+		case r.Method == http.MethodPost && r.URL.Path == "/api/apps/callback/managed-tenants/enrollments":
+			seen["enrollment"] = true
+			_ = json.NewEncoder(w).Encode(ManagedTenantEnrollment{TenantID: "tenant-1", Ticket: "secret-ticket"})
+		case r.Method == http.MethodPost && r.URL.Path == "/api/apps/callback/managed-tenants/grants":
+			seen["grant"] = true
+			_ = json.NewEncoder(w).Encode(ManagedConnectionGrant{TenantID: "tenant-1", GrantID: "phone", Status: "active"})
+		case r.Method == http.MethodDelete && r.URL.EscapedPath() == "/api/apps/callback/managed-tenants/grants/tenant-1/phone%2Fprimary":
+			seen["revoke"] = true
+			w.WriteHeader(http.StatusNoContent)
+		case r.Method == http.MethodPost && r.URL.Path == "/api/apps/callback/managed-tenants/bundles":
+			seen["bundle"] = true
+			_ = json.NewEncoder(w).Encode(ManagedTenantBundle{TenantID: "tenant-1", BundleID: "phone", Revision: 1})
+		case r.Method == http.MethodGet && r.URL.Path == "/api/apps/callback/managed-tenants/bundles/tenant-1/phone":
+			seen["get-bundle"] = true
+			_ = json.NewEncoder(w).Encode(ManagedTenantBundle{TenantID: "tenant-1", BundleID: "phone", Revision: 1, Status: "applied"})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer ts.Close()
+
+	client, err := ManagedTenants(wrapPlatformWithProject(newHTTPPlatformClient(ts.URL, "test-token"), "project-1"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := client.CreateManagedTenantEnrollment(ManagedTenantEnrollmentRequest{TenantID: "tenant-1"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := client.EnsureManagedConnectionGrant(ManagedConnectionGrantRequest{TenantID: "tenant-1", GrantID: "phone", ConnectionID: 57, AppSlug: "twilio"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := client.RevokeManagedConnectionGrant("tenant-1", "phone/primary"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := client.EnsureManagedTenantBundle(ManagedTenantBundleRequest{TenantID: "tenant-1", BundleID: "phone"}); err != nil {
+		t.Fatal(err)
+	}
+	if bundle, err := client.GetManagedTenantBundle("tenant-1", "phone"); err != nil || bundle.Status != "applied" {
+		t.Fatalf("get bundle=%+v err=%v", bundle, err)
+	}
+	for _, key := range []string{"enrollment", "grant", "revoke", "bundle", "get-bundle"} {
+		if !seen[key] {
+			t.Fatalf("%s endpoint was not called", key)
+		}
+	}
+}
+
 func TestGetConnectionPublicConfig(t *testing.T) {
 	var called bool
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

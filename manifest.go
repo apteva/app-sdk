@@ -910,6 +910,11 @@ const (
 	// integration executor and exposed through catalog-declared public fields,
 	// but no raw-credential read endpoint may return them.
 	PermConnectionsManageOwnedCredentials Permission = "platform.connections.manage_owned_credentials"
+	// PermManagedTenantsManage lets a trusted control-plane app enroll remote
+	// Apteva installations, publish desired app bundles, and delegate narrowly
+	// scoped use of connections that the same app owns. It does not expose the
+	// parent connection credentials.
+	PermManagedTenantsManage Permission = "platform.managed_tenants.manage"
 	// PermConnectionsReadPublicConfig lets an app read only credential fields
 	// explicitly marked exposure=public in the bound integration catalog.
 	PermConnectionsReadPublicConfig Permission = "platform.connections.read_public_config"
@@ -996,6 +1001,7 @@ func AllPermissions() []Permission {
 		PermMCPAttach, PermChannelsSend, PermAppsCall,
 		PermFSReadShared, PermFSWriteShared,
 		PermOAuthStart, PermConnectionsManage, PermConnectionsManageOwnedCredentials,
+		PermManagedTenantsManage,
 		PermConnectionsReadPublicConfig,
 		PermConnectionsReadCredentials,
 		PermRealtimeSpawn,
@@ -1024,6 +1030,8 @@ func PermissionDescription(permission Permission) string {
 		return "Subscribe to live telemetry (thoughts, tool calls, streaming output) from agents you own."
 	case PermConnectionsManageOwnedCredentials:
 		return "Create, rotate, and revoke non-exportable integration credentials owned by this app installation."
+	case PermManagedTenantsManage:
+		return "Enroll managed Apteva installations, publish their desired app configuration, and delegate scoped use of app-owned connections."
 	case PermTemplatesRead:
 		return "Read built-in and project-owned setup templates, including agent, app, and Home widget configuration."
 	case PermMCPAttach:

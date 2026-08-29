@@ -1854,6 +1854,100 @@ func RevokeManagedConnection(client PlatformClient, id int64) error {
 	return manager.RevokeManagedConnection(id)
 }
 
+// ManagedTenantEnrollmentRequest creates a short-lived, one-time enrollment
+// ticket. TenantID is the controller's durable idempotency key (normally the
+// SaaS account or installation id); the returned Ticket is shown only through
+// this privileged API and must be delivered to the tenant as a secret file.
+type ManagedTenantEnrollmentRequest struct {
+	TenantID  string `json:"tenant_id"`
+	AccountID string `json:"account_id,omitempty"`
+	ExpiresIn int64  `json:"expires_in_seconds,omitempty"`
+}
+
+type ManagedTenantEnrollment struct {
+	TenantID  string    `json:"tenant_id"`
+	AccountID string    `json:"account_id,omitempty"`
+	Ticket    string    `json:"ticket"`
+	ExpiresAt time.Time `json:"expires_at"`
+}
+
+// ManagedGrantConstraints is evaluated both by the tenant before forwarding
+// and by the controller before execution. FixedInput pins exact values,
+// AllowedValues limits a field to an allow-list, and DeniedFields rejects the
+// presence of fields an app must never control.
+type ManagedGrantConstraints struct {
+	FixedInput    map[string]any      `json:"fixed_input,omitempty"`
+	AllowedValues map[string][]string `json:"allowed_values,omitempty"`
+	DeniedFields  []string            `json:"denied_fields,omitempty"`
+}
+
+type ManagedConnectionGrantRequest struct {
+	TenantID     string                  `json:"tenant_id"`
+	GrantID      string                  `json:"grant_id"`
+	ConnectionID int64                   `json:"connection_id"`
+	AppSlug      string                  `json:"app_slug"`
+	ProjectID    string                  `json:"project_id,omitempty"`
+	AllowedTools []string                `json:"allowed_tools,omitempty"`
+	PublicFields map[string]string       `json:"public_fields,omitempty"`
+	Constraints  ManagedGrantConstraints `json:"constraints,omitempty"`
+}
+
+type ManagedConnectionGrant struct {
+	TenantID     string                  `json:"tenant_id"`
+	GrantID      string                  `json:"grant_id"`
+	ConnectionID int64                   `json:"connection_id"`
+	AppSlug      string                  `json:"app_slug"`
+	ProjectID    string                  `json:"project_id,omitempty"`
+	Status       string                  `json:"status"`
+	AllowedTools []string                `json:"allowed_tools,omitempty"`
+	PublicFields map[string]string       `json:"public_fields,omitempty"`
+	Constraints  ManagedGrantConstraints `json:"constraints,omitempty"`
+	UpdatedAt    time.Time               `json:"updated_at"`
+}
+
+type ManagedBundleApp struct {
+	Key          string            `json:"key"`
+	ManifestURL  string            `json:"manifest_url,omitempty"`
+	ManifestYAML string            `json:"manifest_yaml,omitempty"`
+	ProjectID    string            `json:"project_id,omitempty"`
+	Config       map[string]string `json:"config,omitempty"`
+	Bindings     map[string]string `json:"bindings,omitempty"` // role -> grant_id
+}
+
+type ManagedTenantBundleRequest struct {
+	TenantID string             `json:"tenant_id"`
+	BundleID string             `json:"bundle_id"`
+	Apps     []ManagedBundleApp `json:"apps"`
+}
+
+type ManagedTenantBundle struct {
+	TenantID  string             `json:"tenant_id"`
+	BundleID  string             `json:"bundle_id"`
+	Revision  int64              `json:"revision"`
+	Status    string             `json:"status"`
+	LastError string             `json:"last_error,omitempty"`
+	Apps      []ManagedBundleApp `json:"apps"`
+	UpdatedAt time.Time          `json:"updated_at"`
+}
+
+// ManagedTenantClient is optional so ordinary apps and older PlatformClient
+// test doubles remain source compatible.
+type ManagedTenantClient interface {
+	CreateManagedTenantEnrollment(req ManagedTenantEnrollmentRequest) (*ManagedTenantEnrollment, error)
+	EnsureManagedConnectionGrant(req ManagedConnectionGrantRequest) (*ManagedConnectionGrant, error)
+	RevokeManagedConnectionGrant(tenantID, grantID string) error
+	EnsureManagedTenantBundle(req ManagedTenantBundleRequest) (*ManagedTenantBundle, error)
+	GetManagedTenantBundle(tenantID, bundleID string) (*ManagedTenantBundle, error)
+}
+
+func ManagedTenants(client PlatformClient) (ManagedTenantClient, error) {
+	manager, ok := client.(ManagedTenantClient)
+	if !ok {
+		return nil, errors.New("platform does not support managed tenants")
+	}
+	return manager, nil
+}
+
 type ConnectionFilter struct {
 	ProjectID string
 	AppSlug   string
@@ -1867,11 +1961,9 @@ type PlatformInstance struct {
 	ProjectID       string `json:"project_id"`
 	DefaultThreadID string `json:"default_thread_id,omitempty"`
 	// AttachedToCaller reports whether this agent has the calling
-	// install's app bound (app_agent_bindings). Only populated by
-	// ListAgents responses from servers that support the annotation;
-	// single-agent fetches leave it false. An app can detect support
-	// by checking the flag on an agent it knows is bound — e.g. the
-	// agent whose tool call triggered the lookup.
+	// install's app bound. It is populated by ListAgents responses and
+	// by single-agent fetches for runtime-local agents, whose runtime
+	// membership is itself the attachment boundary.
 	AttachedToCaller bool `json:"attached_to_caller,omitempty"`
 }
 

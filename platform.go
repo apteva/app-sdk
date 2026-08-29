@@ -513,6 +513,44 @@ func (c *httpPlatformClient) RevokeManagedConnection(id int64) error {
 	return c.delete(path, nil)
 }
 
+func (c *httpPlatformClient) CreateManagedTenantEnrollment(req ManagedTenantEnrollmentRequest) (*ManagedTenantEnrollment, error) {
+	var out ManagedTenantEnrollment
+	if err := c.post("/api/apps/callback/managed-tenants/enrollments", req, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+func (c *httpPlatformClient) EnsureManagedConnectionGrant(req ManagedConnectionGrantRequest) (*ManagedConnectionGrant, error) {
+	var out ManagedConnectionGrant
+	if err := c.post("/api/apps/callback/managed-tenants/grants", req, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+func (c *httpPlatformClient) RevokeManagedConnectionGrant(tenantID, grantID string) error {
+	path := "/api/apps/callback/managed-tenants/grants/" + url.PathEscape(tenantID) + "/" + url.PathEscape(grantID)
+	return c.delete(path, nil)
+}
+
+func (c *httpPlatformClient) EnsureManagedTenantBundle(req ManagedTenantBundleRequest) (*ManagedTenantBundle, error) {
+	var out ManagedTenantBundle
+	if err := c.post("/api/apps/callback/managed-tenants/bundles", req, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+func (c *httpPlatformClient) GetManagedTenantBundle(tenantID, bundleID string) (*ManagedTenantBundle, error) {
+	var out ManagedTenantBundle
+	path := "/api/apps/callback/managed-tenants/bundles/" + url.PathEscape(tenantID) + "/" + url.PathEscape(bundleID)
+	if err := c.get(path, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
 // GetGrants fetches the policy the operator wrote for (this install,
 // instanceID). Returns empty rules + default "allow" when the
 // platform endpoint is missing — back-compat with older servers
@@ -1059,6 +1097,41 @@ func (p *projectScopedClient) RevokeManagedConnection(id int64) error {
 		return errors.New("platform does not support managed connections")
 	}
 	return manager.RevokeManagedConnection(id)
+}
+func (p *projectScopedClient) CreateManagedTenantEnrollment(req ManagedTenantEnrollmentRequest) (*ManagedTenantEnrollment, error) {
+	manager, ok := p.inner.(ManagedTenantClient)
+	if !ok {
+		return nil, errors.New("platform does not support managed tenants")
+	}
+	return manager.CreateManagedTenantEnrollment(req)
+}
+func (p *projectScopedClient) EnsureManagedConnectionGrant(req ManagedConnectionGrantRequest) (*ManagedConnectionGrant, error) {
+	manager, ok := p.inner.(ManagedTenantClient)
+	if !ok {
+		return nil, errors.New("platform does not support managed tenants")
+	}
+	return manager.EnsureManagedConnectionGrant(req)
+}
+func (p *projectScopedClient) RevokeManagedConnectionGrant(tenantID, grantID string) error {
+	manager, ok := p.inner.(ManagedTenantClient)
+	if !ok {
+		return errors.New("platform does not support managed tenants")
+	}
+	return manager.RevokeManagedConnectionGrant(tenantID, grantID)
+}
+func (p *projectScopedClient) EnsureManagedTenantBundle(req ManagedTenantBundleRequest) (*ManagedTenantBundle, error) {
+	manager, ok := p.inner.(ManagedTenantClient)
+	if !ok {
+		return nil, errors.New("platform does not support managed tenants")
+	}
+	return manager.EnsureManagedTenantBundle(req)
+}
+func (p *projectScopedClient) GetManagedTenantBundle(tenantID, bundleID string) (*ManagedTenantBundle, error) {
+	manager, ok := p.inner.(ManagedTenantClient)
+	if !ok {
+		return nil, errors.New("platform does not support managed tenants")
+	}
+	return manager.GetManagedTenantBundle(tenantID, bundleID)
 }
 func (p *projectScopedClient) EnsureIntegrationWebhook(req IntegrationWebhookEnsureRequest) (*IntegrationWebhookStatus, error) {
 	return p.inner.EnsureIntegrationWebhook(req)
