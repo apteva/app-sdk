@@ -491,6 +491,28 @@ func (c *httpPlatformClient) ListOwnedConnections() ([]PlatformConnection, error
 	return out, nil
 }
 
+func (c *httpPlatformClient) EnsureManagedConnection(req ManagedConnectionRequest) (*PlatformConnection, error) {
+	var out PlatformConnection
+	if err := c.post("/api/apps/callback/connections/managed/ensure", req, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+func (c *httpPlatformClient) RotateManagedConnection(id int64, req ManagedConnectionRotation) (*PlatformConnection, error) {
+	var out PlatformConnection
+	path := "/api/apps/callback/connections/" + strconv.FormatInt(id, 10) + "/managed/credentials"
+	if err := c.put(path, req, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+func (c *httpPlatformClient) RevokeManagedConnection(id int64) error {
+	path := "/api/apps/callback/connections/" + strconv.FormatInt(id, 10) + "/managed"
+	return c.delete(path, nil)
+}
+
 // GetGrants fetches the policy the operator wrote for (this install,
 // instanceID). Returns empty rules + default "allow" when the
 // platform endpoint is missing — back-compat with older servers
@@ -1013,6 +1035,30 @@ func (p *projectScopedClient) GetConnectionCredentials(id int64) (*ConnectionCre
 }
 func (p *projectScopedClient) GetConnectionPublicConfig(id int64) (*ConnectionPublicConfig, error) {
 	return GetConnectionPublicConfig(p.inner, id)
+}
+func (p *projectScopedClient) EnsureManagedConnection(req ManagedConnectionRequest) (*PlatformConnection, error) {
+	manager, ok := p.inner.(ManagedConnectionClient)
+	if !ok {
+		return nil, errors.New("platform does not support managed connections")
+	}
+	if req.ProjectID == "" {
+		req.ProjectID = p.projectID
+	}
+	return manager.EnsureManagedConnection(req)
+}
+func (p *projectScopedClient) RotateManagedConnection(id int64, req ManagedConnectionRotation) (*PlatformConnection, error) {
+	manager, ok := p.inner.(ManagedConnectionClient)
+	if !ok {
+		return nil, errors.New("platform does not support managed connections")
+	}
+	return manager.RotateManagedConnection(id, req)
+}
+func (p *projectScopedClient) RevokeManagedConnection(id int64) error {
+	manager, ok := p.inner.(ManagedConnectionClient)
+	if !ok {
+		return errors.New("platform does not support managed connections")
+	}
+	return manager.RevokeManagedConnection(id)
 }
 func (p *projectScopedClient) EnsureIntegrationWebhook(req IntegrationWebhookEnsureRequest) (*IntegrationWebhookStatus, error) {
 	return p.inner.EnsureIntegrationWebhook(req)

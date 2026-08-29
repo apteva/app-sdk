@@ -1781,11 +1781,77 @@ type IntegrationWebhookVerifyResult struct {
 }
 
 type PlatformConnection struct {
-	ID        int64  `json:"id"`
-	AppSlug   string `json:"app_slug"`
-	Name      string `json:"name"`
-	Status    string `json:"status"`
-	ProjectID string `json:"project_id"`
+	ID                   int64                  `json:"id"`
+	AppSlug              string                 `json:"app_slug"`
+	Name                 string                 `json:"name"`
+	Status               string                 `json:"status"`
+	ProjectID            string                 `json:"project_id"`
+	CredentialManagement string                 `json:"credential_management,omitempty"`
+	ExportPolicy         ConnectionExportPolicy `json:"export_policy,omitempty"`
+}
+
+// ConnectionExportPolicy controls whether an integration connection's raw
+// credential bundle may ever leave the platform. Existing connections retain
+// the legacy bound-app policy. Managed connections created through the SDK are
+// always ExportNever.
+type ConnectionExportPolicy string
+
+const (
+	ExportBoundApp ConnectionExportPolicy = "bound_app"
+	ExportNever    ConnectionExportPolicy = "never"
+)
+
+// ManagedConnectionRequest creates or updates one app-owned, non-exportable
+// integration connection. Key is the durable idempotency key within the
+// calling app installation. Repeating a request with the same key updates the
+// same row instead of creating a duplicate.
+type ManagedConnectionRequest struct {
+	Key       string            `json:"idempotency_key"`
+	AppSlug   string            `json:"app_slug"`
+	Name      string            `json:"name"`
+	AuthType  string            `json:"auth_type,omitempty"`
+	ProjectID string            `json:"project_id,omitempty"`
+	Fields    map[string]string `json:"fields"`
+}
+
+// ManagedConnectionRotation replaces the complete encrypted credential bundle
+// for a managed connection. Public fields must be included again when they are
+// still meant to be visible through GetConnectionPublicConfig.
+type ManagedConnectionRotation struct {
+	Fields map[string]string `json:"fields"`
+}
+
+// ManagedConnectionClient is optional so adding managed credentials does not
+// force existing PlatformClient test doubles or older custom clients to grow
+// new methods. The SDK's HTTP client implements it on supporting servers.
+type ManagedConnectionClient interface {
+	EnsureManagedConnection(req ManagedConnectionRequest) (*PlatformConnection, error)
+	RotateManagedConnection(id int64, req ManagedConnectionRotation) (*PlatformConnection, error)
+	RevokeManagedConnection(id int64) error
+}
+
+func EnsureManagedConnection(client PlatformClient, req ManagedConnectionRequest) (*PlatformConnection, error) {
+	manager, ok := client.(ManagedConnectionClient)
+	if !ok {
+		return nil, errors.New("platform does not support managed connections")
+	}
+	return manager.EnsureManagedConnection(req)
+}
+
+func RotateManagedConnection(client PlatformClient, id int64, req ManagedConnectionRotation) (*PlatformConnection, error) {
+	manager, ok := client.(ManagedConnectionClient)
+	if !ok {
+		return nil, errors.New("platform does not support managed connections")
+	}
+	return manager.RotateManagedConnection(id, req)
+}
+
+func RevokeManagedConnection(client PlatformClient, id int64) error {
+	manager, ok := client.(ManagedConnectionClient)
+	if !ok {
+		return errors.New("platform does not support managed connections")
+	}
+	return manager.RevokeManagedConnection(id)
 }
 
 type ConnectionFilter struct {

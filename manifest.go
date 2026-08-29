@@ -904,6 +904,12 @@ const (
 	// refresh the connections it owns.
 	PermOAuthStart        Permission = "platform.oauth.start"
 	PermConnectionsManage Permission = "platform.connections.manage"
+	// PermConnectionsManageOwnedCredentials lets an app create, rotate, and
+	// revoke encrypted integration connections owned by that same install.
+	// Managed credentials are non-exportable: they may be used by the platform
+	// integration executor and exposed through catalog-declared public fields,
+	// but no raw-credential read endpoint may return them.
+	PermConnectionsManageOwnedCredentials Permission = "platform.connections.manage_owned_credentials"
 	// PermConnectionsReadPublicConfig lets an app read only credential fields
 	// explicitly marked exposure=public in the bound integration catalog.
 	PermConnectionsReadPublicConfig Permission = "platform.connections.read_public_config"
@@ -989,7 +995,7 @@ func AllPermissions() []Permission {
 		PermInstancesRead, PermInstancesWrite, PermThreadsWrite,
 		PermMCPAttach, PermChannelsSend, PermAppsCall,
 		PermFSReadShared, PermFSWriteShared,
-		PermOAuthStart, PermConnectionsManage,
+		PermOAuthStart, PermConnectionsManage, PermConnectionsManageOwnedCredentials,
 		PermConnectionsReadPublicConfig,
 		PermConnectionsReadCredentials,
 		PermRealtimeSpawn,
@@ -1016,6 +1022,8 @@ func PermissionDescription(permission Permission) string {
 		return "Restore a platform backup, replacing app data and staging the platform database for restart."
 	case PermTelemetryRead:
 		return "Subscribe to live telemetry (thoughts, tool calls, streaming output) from agents you own."
+	case PermConnectionsManageOwnedCredentials:
+		return "Create, rotate, and revoke non-exportable integration credentials owned by this app installation."
 	case PermTemplatesRead:
 		return "Read built-in and project-owned setup templates, including agent, app, and Home widget configuration."
 	case PermMCPAttach:

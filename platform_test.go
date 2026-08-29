@@ -412,6 +412,63 @@ func TestIntegrationWebhookLifecycleRequests(t *testing.T) {
 	}
 }
 
+func TestManagedConnectionLifecycleUsesOptionalCapability(t *testing.T) {
+	var ensured, rotated, revoked bool
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Authorization") != "Bearer test-token" {
+			t.Fatalf("Authorization=%q", r.Header.Get("Authorization"))
+		}
+		switch {
+		case r.Method == http.MethodPost && r.URL.Path == "/api/apps/callback/connections/managed/ensure":
+			var req ManagedConnectionRequest
+			if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+				t.Fatal(err)
+			}
+			if req.Key != "phone:customer-1" || req.ProjectID != "project-1" || req.Fields["auth_token"] != "secret" {
+				t.Fatalf("ensure request=%#v", req)
+			}
+			ensured = true
+			_ = json.NewEncoder(w).Encode(PlatformConnection{ID: 57, AppSlug: "twilio", CredentialManagement: "app", ExportPolicy: ExportNever})
+		case r.Method == http.MethodPut && r.URL.Path == "/api/apps/callback/connections/57/managed/credentials":
+			var req ManagedConnectionRotation
+			if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+				t.Fatal(err)
+			}
+			if req.Fields["auth_token"] != "rotated" {
+				t.Fatalf("rotation=%#v", req)
+			}
+			rotated = true
+			_ = json.NewEncoder(w).Encode(PlatformConnection{ID: 57, AppSlug: "twilio", CredentialManagement: "app", ExportPolicy: ExportNever})
+		case r.Method == http.MethodDelete && r.URL.Path == "/api/apps/callback/connections/57/managed":
+			revoked = true
+			w.WriteHeader(http.StatusNoContent)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer ts.Close()
+
+	base := newHTTPPlatformClient(ts.URL, "test-token")
+	scoped := wrapPlatformWithProject(base, "project-1")
+	conn, err := EnsureManagedConnection(scoped, ManagedConnectionRequest{
+		Key: "phone:customer-1", AppSlug: "twilio", Name: "Managed Phone",
+		Fields: map[string]string{"auth_token": "secret"},
+	})
+	if err != nil || conn.ID != 57 || conn.ExportPolicy != ExportNever {
+		t.Fatalf("ensure conn=%#v err=%v", conn, err)
+	}
+	conn, err = RotateManagedConnection(scoped, 57, ManagedConnectionRotation{Fields: map[string]string{"auth_token": "rotated"}})
+	if err != nil || conn.ID != 57 {
+		t.Fatalf("rotate conn=%#v err=%v", conn, err)
+	}
+	if err := RevokeManagedConnection(scoped, 57); err != nil {
+		t.Fatalf("revoke: %v", err)
+	}
+	if !ensured || !rotated || !revoked {
+		t.Fatalf("ensured=%t rotated=%t revoked=%t", ensured, rotated, revoked)
+	}
+}
+
 func TestGetConnectionPublicConfig(t *testing.T) {
 	var called bool
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
