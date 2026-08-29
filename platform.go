@@ -521,9 +521,26 @@ func (c *httpPlatformClient) CreateManagedTenantEnrollment(req ManagedTenantEnro
 	return &out, nil
 }
 
+func (c *httpPlatformClient) EnsureManagedTenant(req ManagedTenantRequest) (*ManagedTenant, error) {
+	var out ManagedTenant
+	if err := c.post("/api/apps/callback/managed-tenants/tenants", req, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
 func (c *httpPlatformClient) EnsureManagedConnectionGrant(req ManagedConnectionGrantRequest) (*ManagedConnectionGrant, error) {
 	var out ManagedConnectionGrant
 	if err := c.post("/api/apps/callback/managed-tenants/grants", req, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+func (c *httpPlatformClient) GetManagedConnectionGrantDelivery(tenantID, grantID string) (*ManagedConnectionGrantDelivery, error) {
+	var out ManagedConnectionGrantDelivery
+	path := "/api/apps/callback/managed-tenants/grants/" + url.PathEscape(tenantID) + "/" + url.PathEscape(grantID) + "/delivery"
+	if err := c.get(path, &out); err != nil {
 		return nil, err
 	}
 	return &out, nil
@@ -1105,12 +1122,26 @@ func (p *projectScopedClient) CreateManagedTenantEnrollment(req ManagedTenantEnr
 	}
 	return manager.CreateManagedTenantEnrollment(req)
 }
+func (p *projectScopedClient) EnsureManagedTenant(req ManagedTenantRequest) (*ManagedTenant, error) {
+	manager, ok := p.inner.(ManagedTenantClient)
+	if !ok {
+		return nil, errors.New("platform does not support managed tenants")
+	}
+	return manager.EnsureManagedTenant(req)
+}
 func (p *projectScopedClient) EnsureManagedConnectionGrant(req ManagedConnectionGrantRequest) (*ManagedConnectionGrant, error) {
 	manager, ok := p.inner.(ManagedTenantClient)
 	if !ok {
 		return nil, errors.New("platform does not support managed tenants")
 	}
 	return manager.EnsureManagedConnectionGrant(req)
+}
+func (p *projectScopedClient) GetManagedConnectionGrantDelivery(tenantID, grantID string) (*ManagedConnectionGrantDelivery, error) {
+	manager, ok := p.inner.(ManagedTenantClient)
+	if !ok {
+		return nil, errors.New("platform does not support managed tenants")
+	}
+	return manager.GetManagedConnectionGrantDelivery(tenantID, grantID)
 }
 func (p *projectScopedClient) RevokeManagedConnectionGrant(tenantID, grantID string) error {
 	manager, ok := p.inner.(ManagedTenantClient)

@@ -1871,6 +1871,21 @@ type ManagedTenantEnrollment struct {
 	ExpiresAt time.Time `json:"expires_at"`
 }
 
+// ManagedTenantRequest registers a durable tenant identity for controllers
+// that push desired state directly to a remote Apteva instance. Unlike an
+// enrollment, this does not mint a polling identity or one-time ticket.
+type ManagedTenantRequest struct {
+	TenantID  string `json:"tenant_id"`
+	AccountID string `json:"account_id,omitempty"`
+}
+
+type ManagedTenant struct {
+	TenantID  string    `json:"tenant_id"`
+	AccountID string    `json:"account_id,omitempty"`
+	Status    string    `json:"status"`
+	UpdatedAt time.Time `json:"updated_at"`
+}
+
 // ManagedGrantConstraints is evaluated both by the tenant before forwarding
 // and by the controller before execution. FixedInput pins exact values,
 // AllowedValues limits a field to an allow-list, and DeniedFields rejects the
@@ -1905,6 +1920,22 @@ type ManagedConnectionGrant struct {
 	UpdatedAt    time.Time               `json:"updated_at"`
 }
 
+// ManagedConnectionGrantDelivery is the secret-bearing envelope a trusted
+// controller delivers to a remote Apteva instance. It contains a restricted
+// grant token, never the parent connection's provider credentials.
+type ManagedConnectionGrantDelivery struct {
+	TenantID          string                  `json:"tenant_id"`
+	GrantID           string                  `json:"grant_id"`
+	ConnectionID      int64                   `json:"parent_connection_id"`
+	AppSlug           string                  `json:"app_slug"`
+	ProjectID         string                  `json:"project_id,omitempty"`
+	ControllerToken   string                  `json:"controller_token"`
+	ControllerExecute string                  `json:"controller_execute_url"`
+	AllowedTools      []string                `json:"allowed_tools,omitempty"`
+	PublicFields      map[string]string       `json:"public_fields,omitempty"`
+	Constraints       ManagedGrantConstraints `json:"constraints,omitempty"`
+}
+
 type ManagedBundleApp struct {
 	Key          string            `json:"key"`
 	ManifestURL  string            `json:"manifest_url,omitempty"`
@@ -1930,11 +1961,34 @@ type ManagedTenantBundle struct {
 	UpdatedAt time.Time          `json:"updated_at"`
 }
 
+// ManagedProvisioningApplyRequest is the idempotent desired-state envelope
+// accepted by a remote Apteva server's /api/provisioning/apply endpoint.
+// RequestID is durable across retries. Bundle revisions must increase when
+// desired app configuration changes.
+type ManagedProvisioningApplyRequest struct {
+	RequestID       string                           `json:"request_id"`
+	TenantID        string                           `json:"tenant_id"`
+	Grants          []ManagedConnectionGrantDelivery `json:"grants,omitempty"`
+	RevokedGrantIDs []string                         `json:"revoked_grant_ids,omitempty"`
+	Bundle          *ManagedTenantBundle             `json:"bundle,omitempty"`
+}
+
+type ManagedProvisioningApplyResult struct {
+	RequestID   string           `json:"request_id"`
+	TenantID    string           `json:"tenant_id"`
+	Status      string           `json:"status"`
+	Connections map[string]int64 `json:"connections,omitempty"`
+	BundleID    string           `json:"bundle_id,omitempty"`
+	Revision    int64            `json:"revision,omitempty"`
+}
+
 // ManagedTenantClient is optional so ordinary apps and older PlatformClient
 // test doubles remain source compatible.
 type ManagedTenantClient interface {
+	EnsureManagedTenant(req ManagedTenantRequest) (*ManagedTenant, error)
 	CreateManagedTenantEnrollment(req ManagedTenantEnrollmentRequest) (*ManagedTenantEnrollment, error)
 	EnsureManagedConnectionGrant(req ManagedConnectionGrantRequest) (*ManagedConnectionGrant, error)
+	GetManagedConnectionGrantDelivery(tenantID, grantID string) (*ManagedConnectionGrantDelivery, error)
 	RevokeManagedConnectionGrant(tenantID, grantID string) error
 	EnsureManagedTenantBundle(req ManagedTenantBundleRequest) (*ManagedTenantBundle, error)
 	GetManagedTenantBundle(tenantID, bundleID string) (*ManagedTenantBundle, error)

@@ -476,12 +476,18 @@ func TestManagedTenantControlUsesOptionalCapability(t *testing.T) {
 			t.Fatalf("Authorization=%q", r.Header.Get("Authorization"))
 		}
 		switch {
+		case r.Method == http.MethodPost && r.URL.Path == "/api/apps/callback/managed-tenants/tenants":
+			seen["tenant"] = true
+			_ = json.NewEncoder(w).Encode(ManagedTenant{TenantID: "tenant-1", AccountID: "account-1", Status: "active"})
 		case r.Method == http.MethodPost && r.URL.Path == "/api/apps/callback/managed-tenants/enrollments":
 			seen["enrollment"] = true
 			_ = json.NewEncoder(w).Encode(ManagedTenantEnrollment{TenantID: "tenant-1", Ticket: "secret-ticket"})
 		case r.Method == http.MethodPost && r.URL.Path == "/api/apps/callback/managed-tenants/grants":
 			seen["grant"] = true
 			_ = json.NewEncoder(w).Encode(ManagedConnectionGrant{TenantID: "tenant-1", GrantID: "phone", Status: "active"})
+		case r.Method == http.MethodGet && r.URL.Path == "/api/apps/callback/managed-tenants/grants/tenant-1/phone/delivery":
+			seen["delivery"] = true
+			_ = json.NewEncoder(w).Encode(ManagedConnectionGrantDelivery{TenantID: "tenant-1", GrantID: "phone", ControllerToken: "aptg_secret"})
 		case r.Method == http.MethodDelete && r.URL.EscapedPath() == "/api/apps/callback/managed-tenants/grants/tenant-1/phone%2Fprimary":
 			seen["revoke"] = true
 			w.WriteHeader(http.StatusNoContent)
@@ -501,11 +507,17 @@ func TestManagedTenantControlUsesOptionalCapability(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	if _, err := client.EnsureManagedTenant(ManagedTenantRequest{TenantID: "tenant-1", AccountID: "account-1"}); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := client.CreateManagedTenantEnrollment(ManagedTenantEnrollmentRequest{TenantID: "tenant-1"}); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := client.EnsureManagedConnectionGrant(ManagedConnectionGrantRequest{TenantID: "tenant-1", GrantID: "phone", ConnectionID: 57, AppSlug: "twilio"}); err != nil {
 		t.Fatal(err)
+	}
+	if delivery, err := client.GetManagedConnectionGrantDelivery("tenant-1", "phone"); err != nil || delivery.ControllerToken != "aptg_secret" {
+		t.Fatalf("delivery=%+v err=%v", delivery, err)
 	}
 	if err := client.RevokeManagedConnectionGrant("tenant-1", "phone/primary"); err != nil {
 		t.Fatal(err)
@@ -516,7 +528,7 @@ func TestManagedTenantControlUsesOptionalCapability(t *testing.T) {
 	if bundle, err := client.GetManagedTenantBundle("tenant-1", "phone"); err != nil || bundle.Status != "applied" {
 		t.Fatalf("get bundle=%+v err=%v", bundle, err)
 	}
-	for _, key := range []string{"enrollment", "grant", "revoke", "bundle", "get-bundle"} {
+	for _, key := range []string{"tenant", "enrollment", "grant", "delivery", "revoke", "bundle", "get-bundle"} {
 		if !seen[key] {
 			t.Fatalf("%s endpoint was not called", key)
 		}
