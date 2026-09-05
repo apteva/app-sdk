@@ -484,12 +484,9 @@ func parseSchedule(s string) (time.Duration, error) {
 // webhooks:
 //
 //  1. /health — the orchestrator's liveness probe never has a token.
-//  2. ?sig=… — any GET request with a sig query param falls through
-//     to the app handler, which is responsible for verifying the
-//     HMAC. This is the standard pattern for time-limited signed
-//     URLs (S3 presign, CDN presign, etc.) and lets anonymous chat
-//     users / external links work without leaking the platform
-//     token. The handler MUST verify the sig itself.
+//  2. Explicit Route.NoAuth routes — signed downloads must opt in on
+//     their exact route and validate the signature in their handler.
+//     Query parameters never relax authentication on protected routes.
 //  3. /webhooks/* — provider-callback endpoints (SES/SNS, Twilio,
 //     Stripe, GitHub, etc.). The provider signs the request payload
 //     with their own scheme (SNS X.509, Twilio HMAC-SHA1, Stripe
@@ -506,12 +503,6 @@ func withTokenAuth(h http.Handler) http.Handler {
 		}
 		if expected == "" {
 			// Dev mode — no token configured. Still serve, but warn.
-			h.ServeHTTP(w, r)
-			return
-		}
-		// Signed-URL pass-through. Only GETs (no mutations); the app
-		// handler verifies the actual sig.
-		if r.Method == http.MethodGet && r.URL.Query().Get("sig") != "" {
 			h.ServeHTTP(w, r)
 			return
 		}

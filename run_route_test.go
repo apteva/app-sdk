@@ -59,3 +59,23 @@ func TestWithTokenAuthAllowsParameterizedNoAuthRoute(t *testing.T) {
 		t.Fatalf("parameterized no-auth route status=%d reached=%v", rec.Code, reached)
 	}
 }
+
+func TestSignatureQueryDoesNotBypassProtectedRoute(t *testing.T) {
+	t.Setenv("APTEVA_APP_TOKEN", "secret")
+	prior := publicRoutePaths
+	publicRoutePaths = []string{"/signed/"}
+	defer func() { publicRoutePaths = prior }()
+	handler := withTokenAuth(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(204) }))
+	for _, test := range []struct {
+		path, token string
+		status      int
+	}{{"/private?sig=invalid", "", 401}, {"/private?sig=invalid", "Bearer wrong", 401}, {"/private?sig=invalid", "Bearer secret", 204}, {"/signed/file?sig=invalid", "", 204}} {
+		req := httptest.NewRequest("GET", test.path, nil)
+		req.Header.Set("Authorization", test.token)
+		rec := httptest.NewRecorder()
+		handler.ServeHTTP(rec, req)
+		if rec.Code != test.status {
+			t.Errorf("%s status=%d want=%d", test.path, rec.Code, test.status)
+		}
+	}
+}
