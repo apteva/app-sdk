@@ -9,6 +9,7 @@ package testkit
 // handlers.
 
 import (
+	"context"
 	"sync"
 	"time"
 
@@ -114,3 +115,8 @@ func (r *EmitRecorder) Reset() {
 
 // Static-asserted that EmitRecorder satisfies sdk.Emitter.
 var _ sdk.Emitter = (*EmitRecorder)(nil)
+
+func (r *EmitRecorder) EmitWithProjectAck(_ context.Context, topic, projectID string, data any) error {
+	r.EmitWithProject(topic, projectID, data)
+	return nil
+}

@@ -2141,3 +2141,17 @@ type InstallIdentity struct {
 // handler sees them. The default remains float64 for existing applications.
 // Handlers opting in must support json.Number wherever they accept numbers.
 type JSONNumberPreservingApp interface{ PreserveJSONNumbers() bool }
+
+// EmitWithProjectAck supports durable app outboxes without changing Emitter.
+// Unsupported emitters return an error rather than claiming delivery.
+func (c *AppCtx) EmitWithProjectAck(ctx context.Context, topic, projectID string, data any) error {
+	if c == nil || c.emitter == nil {
+		return errors.New("event emitter unavailable")
+	}
+	if e, ok := c.emitter.(interface {
+		EmitWithProjectAck(context.Context, string, string, any) error
+	}); ok {
+		return e.EmitWithProjectAck(ctx, topic, projectID, data)
+	}
+	return errors.New("event emitter does not support acknowledgments")
+}

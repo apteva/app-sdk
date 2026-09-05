@@ -1207,10 +1207,7 @@ func runMigrations(db *sql.DB, dir string, logger Logger) error {
 		if err != nil {
 			return err
 		}
-		if _, err := db.Exec(string(body)); err != nil {
-			return fmt.Errorf("migration %s: %w", f, err)
-		}
-		if _, err := db.Exec("INSERT INTO _migrations(filename) VALUES (?)", f); err != nil {
+		if err := applyMigration(db, f, string(body)); err != nil {
 			return err
 		}
 		logger.Info("applied migration", "file", f)

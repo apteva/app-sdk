@@ -17,6 +17,8 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
+	"io"
 	"net/http"
 	"strings"
 	"time"
@@ -95,4 +97,33 @@ func (e *httpEmitter) send(topic, projectID string, data any) {
 	if resp.StatusCode >= 300 {
 		e.logger.Warn("emit: non-2xx", "topic", topic, "status", resp.StatusCode)
 	}
+}
+
+// EmitWithProjectAck waits for the platform to accept an event. Durable app
+// outboxes should retry errors with a stable event_id in the payload.
+func (e *httpEmitter) EmitWithProjectAck(ctx context.Context, topic, projectID string, data any) error {
+	if e == nil || e.gatewayURL == "" || e.token == "" {
+		return fmt.Errorf("event gateway not configured")
+	}
+	body, err := json.Marshal(map[string]any{"topic": topic, "project_id": projectID, "data": data})
+	if err != nil {
+		return err
+	}
+	req, err := http.NewRequestWithContext(ctx, "POST", e.gatewayURL+"/api/app-events/internal/emit", bytes.NewReader(body))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Authorization", "Bearer "+e.token)
+	req.Header.Set("Content-Type", "application/json")
+	client := &http.Client{Timeout: 5 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	io.Copy(io.Discard, io.LimitReader(resp.Body, 1<<16))
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return fmt.Errorf("event gateway HTTP %d", resp.StatusCode)
+	}
+	return nil
 }
