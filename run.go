@@ -599,7 +599,11 @@ func (h *mcpHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var req mcpRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	decoder := json.NewDecoder(r.Body)
+	if policy, ok := h.app.(JSONNumberPreservingApp); ok && policy.PreserveJSONNumbers() {
+		decoder.UseNumber()
+	}
+	if err := decoder.Decode(&req); err != nil {
 		writeMCPErr(w, nil, -32700, "parse error")
 		return
 	}

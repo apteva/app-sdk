@@ -2134,3 +2134,10 @@ type InstallIdentity struct {
 	// fall back to relative paths and document the limitation.
 	PublicURL string `json:"public_url,omitempty"`
 }
+
+// JSONNumberPreservingApp is an optional MCP decoding policy. Opted-in apps
+// receive json.Number for every numeric input, including nested values and
+// defaults, so large integers and precise decimals are not rounded before a
+// handler sees them. The default remains float64 for existing applications.
+// Handlers opting in must support json.Number wherever they accept numbers.
+type JSONNumberPreservingApp interface{ PreserveJSONNumbers() bool }
