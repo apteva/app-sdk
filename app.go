@@ -180,6 +180,8 @@ type ChannelMessage struct {
 // over reading the env directly — that's the single hook that makes
 // a global install behave correctly.
 type AppCtx struct {
+	startupContext context.Context
+	startup        *startupStatus
 	manifest       *Manifest
 	cfg            Config
 	db             *sql.DB
@@ -2154,4 +2156,21 @@ func (c *AppCtx) EmitWithProjectAck(ctx context.Context, topic, projectID string
 		return e.EmitWithProjectAck(ctx, topic, projectID, data)
 	}
 	return errors.New("event emitter does not support acknowledgments")
+}
+
+// StartupContext is canceled on initialization timeout or process shutdown.
+// It is for OnMount and migration work, not long-lived background workers.
+func (c *AppCtx) StartupContext() context.Context {
+	if c != nil && c.startupContext != nil {
+		return c.startupContext
+	}
+	return context.Background()
+}
+
+// ReportStartupProgress publishes bounded counters on the initializing health
+// response. Do not include credentials, customer data or table names in phase.
+func (c *AppCtx) ReportStartupProgress(phase string, completed, total int64) {
+	if c != nil && c.startup != nil {
+		c.startup.progress(phase, completed, total)
+	}
 }

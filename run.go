@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"net"
 	"net/http"
 	"net/url"
 	"os"
@@ -35,88 +36,36 @@ import (
 // APTEVA_INSTALL_ID, APTEVA_PROJECT_ID, APTEVA_APP_CONFIG (encoded
 // JSON) from env — the platform injects all of these.
 func Run(app App) {
+	lifetime, stop := signal.NotifyContext(context.Background(), syscall.SIGTERM, syscall.SIGINT)
+	defer stop()
+	if err := runApp(lifetime, app); err != nil {
+		log.Fatalf("apteva-app: %v", err)
+	}
+}
+
+func runApp(lifetime context.Context, app App) error {
 	manifest := app.Manifest()
 	if err := ValidateManifest(&manifest); err != nil {
-		log.Fatalf("apteva-app: invalid manifest: %v", err)
+		return err
 	}
-
 	logger := newDefaultLogger(manifest.Name)
 	logger.Info("starting", "name", manifest.Name, "version", manifest.Version)
-
-	// Open the app DB and run migrations if a db block is declared.
-	var databases *appDatabases
-	if manifest.DB != nil {
-		var err error
-		databases, err = openAppDatabases(manifest.DB, logger)
-		if err != nil {
-			log.Fatalf("apteva-app: open db: %v", err)
-		}
-		defer databases.Close()
+	budget := manifest.Runtime.StartupTimeoutSeconds
+	if budget == 0 {
+		budget = 60
 	}
-
-	// Decode the platform-injected install config.
-	cfg := readConfigEnv()
-
-	// Platform client and event emitter normally use the same install token as
-	// inbound sidecar authentication. Test/manual-mount environments can split
-	// the two with APTEVA_OUTBOUND_TOKEN while preserving the production
-	// APTEVA_APP_TOKEN default.
-	outboundToken := appOutboundToken()
-	platform := newHTTPPlatformClient(
-		os.Getenv("APTEVA_GATEWAY_URL"),
-		outboundToken,
-	)
-
-	cancelCh := make(chan struct{})
-	var db, readDB *sql.DB
-	var dbState *appDBState
-	if databases != nil {
-		db = databases.writer
-		readDB = databases.reader
-		dbState = databases.state
-	}
-	ctx := &AppCtx{
-		manifest: &manifest,
-		cfg:      cfg,
-		db:       db,
-		readDB:   readDB,
-		dbState:  dbState,
-		platform: platform,
-		logger:   logger,
-		cancel:   cancelCh,
-		emitter:  newHTTPEmitter(os.Getenv("APTEVA_GATEWAY_URL"), outboundToken, logger),
-	}
-
-	if err := app.OnMount(ctx); err != nil {
-		log.Fatalf("apteva-app: OnMount: %v", err)
-	}
-
-	// HTTP mux: app routes + framework routes (/health, /mcp, /events).
-	mux := http.NewServeMux()
-	mountAppRoutes(mux, app, ctx)
-	mountFrameworkRoutes(mux, app, ctx)
-
+	startupCtx, cancelStartup := context.WithTimeout(lifetime, time.Duration(budget)*time.Second)
+	defer cancelStartup()
+	status := newStartupStatus()
 	port := manifest.Runtime.Port
 	if port == 0 {
-		port = 8080 // dev default
+		port = 8080
 	}
-	// APTEVA_APP_PORT — platform-injected when multiple apps run on one
-	// host so they don't collide on the manifest's static port. Local
-	// installer picks a free port per install.
 	if v := os.Getenv("APTEVA_APP_PORT"); v != "" {
 		if n, err := strconv.Atoi(v); err == nil && n > 0 {
 			port = n
 		}
 	}
-	// Sidecars default to loopback. Predictable APTEVA_APP_TOKENs
-	// (dev-<install_id>) mean exposing every install to the LAN
-	// would be a token-guessing playground — the platform proxies
-	// /api/apps/<name>/* through its own auth layer instead. Apps
-	// that genuinely need LAN reachability (DLNA broadcaster, IoT
-	// gateways) opt in via runtime.bind_host in the manifest, or
-	// override per-process with APTEVA_BIND_HOST. When non-loopback,
-	// every route MUST set NoAuth (the LAN itself is the auth
-	// boundary in that mode).
 	host := manifest.Runtime.BindHost
 	if v := os.Getenv("APTEVA_BIND_HOST"); v != "" {
 		host = v
@@ -124,69 +73,110 @@ func Run(app App) {
 	if host == "" {
 		host = "127.0.0.1"
 	}
-	if host != "127.0.0.1" && host != "localhost" {
-		logger.Warn("sidecar binding non-loopback — every route on this app is reachable from the LAN; mark NoAuth carefully",
-			"host", host, "port", port)
+	listener, err := net.Listen("tcp", fmt.Sprintf("%s:%d", host, port))
+	if err != nil {
+		return fmt.Errorf("listen: %w", err)
 	}
-	srv := &http.Server{
-		Addr:              fmt.Sprintf("%s:%d", host, port),
-		Handler:           withTokenAuth(mux),
-		ReadHeaderTimeout: 5 * time.Second,
+	srv := &http.Server{Handler: status, ReadHeaderTimeout: 5 * time.Second}
+	httpDone := make(chan error, 1)
+	go func() { httpDone <- srv.Serve(listener) }()
+	defer func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		_ = srv.Shutdown(ctx)
+	}()
+	go func() { <-startupCtx.Done(); status.failIfInitializing() }()
+	status.progress("database", 0, 0)
+	var databases *appDatabases
+	if manifest.DB != nil {
+		databases, err = openAppDatabasesContext(startupCtx, manifest.DB, logger)
+		if err != nil {
+			status.failIfInitializing()
+			return fmt.Errorf("open db: %w", err)
+		}
+		defer databases.Close()
 	}
-
-	// Start workers — each in its own goroutine, supervised.
-	var wg sync.WaitGroup
-	workerCtx, workerCancel := context.WithCancel(context.Background())
-	for _, w := range app.Workers() {
-		wg.Add(1)
-		go func(w Worker) {
-			defer wg.Done()
-			runWorker(workerCtx, w, ctx, logger)
-		}(w)
-	}
-
-	// Boot HTTP server in its own goroutine so we can listen for signals.
+	cancelCh := make(chan struct{})
+	var cancelOnce sync.Once
+	closeApp := func() { cancelOnce.Do(func() { close(cancelCh) }) }
+	defer closeApp()
+	// Preserve cancellation for apps using the existing Done channel in OnMount.
 	go func() {
-		logger.Info("listening", "port", port)
-		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			log.Fatalf("apteva-app: http: %v", err)
+		select {
+		case <-lifetime.Done():
+			closeApp()
+		case <-cancelCh:
 		}
 	}()
-
-	// Wait for SIGTERM/SIGINT.
-	stop := make(chan os.Signal, 1)
-	signal.Notify(stop, syscall.SIGTERM, syscall.SIGINT)
-	<-stop
-	logger.Info("shutting down")
-
-	close(cancelCh)
+	outboundToken := appOutboundToken()
+	ctx := &AppCtx{manifest: &manifest, cfg: readConfigEnv(),
+		platform: newHTTPPlatformClient(os.Getenv("APTEVA_GATEWAY_URL"), outboundToken),
+		logger:   logger, cancel: cancelCh,
+		emitter:        newHTTPEmitter(os.Getenv("APTEVA_GATEWAY_URL"), outboundToken, logger),
+		startupContext: startupCtx, startup: status}
+	if databases != nil {
+		ctx.db, ctx.readDB, ctx.dbState = databases.writer, databases.reader, databases.state
+	}
+	status.progress("mounting", 0, 0)
+	if err := app.OnMount(ctx); err != nil {
+		status.failIfInitializing()
+		return fmt.Errorf("OnMount: %w", err)
+	}
+	if err := startupCtx.Err(); err != nil {
+		status.failIfInitializing()
+		return err
+	}
+	if databases != nil {
+		if _, err := databases.writer.ExecContext(startupCtx, "PRAGMA busy_timeout=30000"); err != nil {
+			status.failIfInitializing()
+			return err
+		}
+		databases.writer.SetConnMaxLifetime(5 * time.Minute)
+		databases.writer.SetConnMaxIdleTime(2 * time.Minute)
+	}
+	mux := http.NewServeMux()
+	mountAppRoutes(mux, app, ctx)
+	mountFrameworkRoutes(mux, app, ctx)
+	if !status.ready(startupCtx, withTokenAuth(mux)) {
+		return fmt.Errorf("initialization deadline expired")
+	}
+	cancelStartup()
+	logger.Info("ready", "port", port)
+	workerCtx, workerCancel := context.WithCancel(lifetime)
+	defer workerCancel()
+	var wg sync.WaitGroup
+	for _, w := range app.Workers() {
+		wg.Add(1)
+		go func(w Worker) { defer wg.Done(); runWorker(workerCtx, w, ctx, logger) }(w)
+	}
+	select {
+	case <-lifetime.Done():
+	case err = <-httpDone:
+	}
 	workerCancel()
+	closeApp()
 	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer shutdownCancel()
 	_ = srv.Shutdown(shutdownCtx)
-	unmountDone := make(chan error, 1)
-	go func() {
-		unmountDone <- app.OnUnmount(ctx)
-	}()
+	unmounted := make(chan error, 1)
+	go func() { unmounted <- app.OnUnmount(ctx) }()
 	select {
-	case err := <-unmountDone:
+	case err := <-unmounted:
 		if err != nil {
 			logger.Warn("OnUnmount error", "err", err)
 		}
-	case <-time.After(10 * time.Second):
-		logger.Warn("OnUnmount timed out; exiting")
+	case <-shutdownCtx.Done():
 	}
 	workersDone := make(chan struct{})
-	go func() {
-		wg.Wait()
-		close(workersDone)
-	}()
+	go func() { wg.Wait(); close(workersDone) }()
 	select {
 	case <-workersDone:
-	case <-time.After(10 * time.Second):
-		logger.Warn("worker shutdown timed out; exiting")
+	case <-shutdownCtx.Done():
 	}
-	logger.Info("stopped")
+	if err == http.ErrServerClosed {
+		return nil
+	}
+	return err
 }
 
 func appOutboundToken() string {
@@ -288,7 +278,7 @@ func cachedPublicRouteMatcher(pattern string) (matcher *http.ServeMux) {
 func mountFrameworkRoutes(mux *http.ServeMux, app App, ctx *AppCtx) {
 	mux.HandleFunc("/health", func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write([]byte(`{"ok":true}`))
+		_, _ = w.Write([]byte(`{"ok":true,"status":"ready"}`))
 	})
 
 	// Live manifest — apteva-server polls this so the dashboard's
@@ -919,12 +909,15 @@ func (d *appDatabases) Close() error {
 }
 
 func openAppDatabases(cfg *DBConfig, logger Logger) (*appDatabases, error) {
-	writer, err := openAppWriterDB(cfg, logger, false)
+	return openAppDatabasesContext(context.Background(), cfg, logger)
+}
+func openAppDatabasesContext(ctx context.Context, cfg *DBConfig, logger Logger) (*appDatabases, error) {
+	writer, err := openAppWriterDBContext(ctx, cfg, logger, false)
 	if err != nil {
 		return nil, err
 	}
 	path := appDBPath(cfg)
-	reader, err := openAppReadDB(path, defaultSQLiteReadConns)
+	reader, err := openAppReadDBContext(ctx, path, defaultSQLiteReadConns)
 	if err != nil {
 		_ = writer.Close()
 		return nil, err
@@ -955,6 +948,9 @@ func appDBPath(cfg *DBConfig) string {
 }
 
 func openAppReadDB(path string, maxConns int) (*sql.DB, error) {
+	return openAppReadDBContext(context.Background(), path, maxConns)
+}
+func openAppReadDBContext(ctx context.Context, path string, maxConns int) (*sql.DB, error) {
 	if maxConns < 1 {
 		maxConns = defaultSQLiteReadConns
 	}
@@ -970,16 +966,16 @@ func openAppReadDB(path string, maxConns int) (*sql.DB, error) {
 	db.SetMaxIdleConns(maxConns)
 	db.SetConnMaxLifetime(5 * time.Minute)
 	db.SetConnMaxIdleTime(2 * time.Minute)
-	if err := db.Ping(); err != nil {
+	if err := db.PingContext(ctx); err != nil {
 		_ = db.Close()
 		return nil, fmt.Errorf("open read-only app db %s: %w", path, err)
 	}
 	var queryOnly, busyTimeout int
-	if err := db.QueryRow("PRAGMA query_only").Scan(&queryOnly); err != nil {
+	if err := db.QueryRowContext(ctx, "PRAGMA query_only").Scan(&queryOnly); err != nil {
 		_ = db.Close()
 		return nil, fmt.Errorf("verify read-only app db %s: %w", path, err)
 	}
-	if err := db.QueryRow("PRAGMA busy_timeout").Scan(&busyTimeout); err != nil {
+	if err := db.QueryRowContext(ctx, "PRAGMA busy_timeout").Scan(&busyTimeout); err != nil {
 		_ = db.Close()
 		return nil, fmt.Errorf("verify read-only app db %s: %w", path, err)
 	}
@@ -1034,6 +1030,9 @@ func openAppDB(cfg *DBConfig, logger Logger) (*sql.DB, error) {
 }
 
 func openAppWriterDB(cfg *DBConfig, logger Logger, startWatcher bool) (*sql.DB, error) {
+	return openAppWriterDBContext(context.Background(), cfg, logger, startWatcher)
+}
+func openAppWriterDBContext(ctx context.Context, cfg *DBConfig, logger Logger, startWatcher bool) (*sql.DB, error) {
 	if cfg.Driver != "sqlite" && cfg.Driver != "" {
 		return nil, fmt.Errorf("only sqlite supported in this SDK; got %q", cfg.Driver)
 	}
@@ -1070,7 +1069,8 @@ func openAppWriterDB(cfg *DBConfig, logger Logger, startWatcher bool) (*sql.DB, 
 	if err != nil {
 		return nil, err
 	}
-	if err := db.Ping(); err != nil {
+	if err := db.PingContext(ctx); err != nil {
+		db.Close()
 		return nil, err
 	}
 	// Verify the pragmas actually took. The DSN claims them, but if the
@@ -1117,6 +1117,17 @@ func openAppWriterDB(cfg *DBConfig, logger Logger, startWatcher bool) (*sql.DB, 
 	db.SetConnMaxLifetime(5 * time.Minute)
 	db.SetConnMaxIdleTime(2 * time.Minute)
 
+	// SQLite's busy handler does not promptly observe context cancellation.
+	// During initialization keep one connection, with a short lock wait; restore
+	// normal runtime settings only after OnMount completes.
+	if ctx.Done() != nil {
+		db.SetConnMaxLifetime(0)
+		db.SetConnMaxIdleTime(0)
+		if _, err := db.ExecContext(ctx, "PRAGMA busy_timeout=1000"); err != nil {
+			db.Close()
+			return nil, err
+		}
+	}
 	// Inode watchdog. Every 30s, stat the DB path and compare the inode
 	// to the one captured at open time. When the inode changes the pool
 	// is poisoned (see SQLITE_READONLY_DBMOVED above); the conn-lifetime
@@ -1138,7 +1149,8 @@ func openAppWriterDB(cfg *DBConfig, logger Logger, startWatcher bool) (*sql.DB, 
 		migrationsDir = v
 	}
 	if migrationsDir != "" {
-		if err := runMigrations(db, migrationsDir, logger); err != nil {
+		if err := runMigrationsContext(ctx, db, migrationsDir, logger); err != nil {
+			db.Close()
 			return nil, err
 		}
 	}
@@ -1177,10 +1189,16 @@ func assertSQLitePragmas(db *sql.DB) error {
 }
 
 func runMigrations(db *sql.DB, dir string, logger Logger) error {
-	if _, err := db.Exec(`CREATE TABLE IF NOT EXISTS _migrations (
+	return runMigrationsContext(context.Background(), db, dir, logger)
+}
+func runMigrationsContext(ctx context.Context, db *sql.DB, dir string, logger Logger) error {
+	if err := retryStartupBusy(ctx, func() error {
+		_, err := db.ExecContext(ctx, `CREATE TABLE IF NOT EXISTS _migrations (
 		filename TEXT PRIMARY KEY,
 		applied_at DATETIME DEFAULT CURRENT_TIMESTAMP
-	)`); err != nil {
+	)`)
+		return err
+	}); err != nil {
 		return fmt.Errorf("create _migrations: %w", err)
 	}
 	entries, err := os.ReadDir(dir)
@@ -1199,15 +1217,18 @@ func runMigrations(db *sql.DB, dir string, logger Logger) error {
 	sort.Strings(files)
 	for _, f := range files {
 		var seen string
-		err := db.QueryRow("SELECT filename FROM _migrations WHERE filename = ?", f).Scan(&seen)
+		err := db.QueryRowContext(ctx, "SELECT filename FROM _migrations WHERE filename = ?", f).Scan(&seen)
 		if err == nil {
 			continue // already applied
+		}
+		if err != sql.ErrNoRows {
+			return err
 		}
 		body, err := os.ReadFile(filepath.Join(dir, f))
 		if err != nil {
 			return err
 		}
-		if err := applyMigration(db, f, string(body)); err != nil {
+		if err := retryStartupBusy(ctx, func() error { return applyMigrationContext(ctx, db, f, string(body)) }); err != nil {
 			return err
 		}
 		logger.Info("applied migration", "file", f)

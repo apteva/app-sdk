@@ -664,8 +664,14 @@ type Runtime struct {
 	// Runtime.Port remains the primary HTTP port used by the platform proxy;
 	// each entry here is published separately by the runtime/orchestrator.
 	// HostPort 0 asks the runtime to allocate a host port dynamically.
-	Ports       []RuntimePort `yaml:"ports,omitempty" json:"ports,omitempty"`
-	HealthCheck string        `yaml:"health_check" json:"health_check"`
+	Ports []RuntimePort `yaml:"ports,omitempty" json:"ports,omitempty"`
+	// StartupTimeoutSeconds is an absolute initialization budget, not a sliding
+	// health retry interval. Zero retains the platform's legacy budget.
+	StartupTimeoutSeconds int `yaml:"startup_timeout_seconds,omitempty" json:"startup_timeout_seconds,omitempty"`
+	// DatabaseUpgrade declares whether committed schema changes permit binary
+	// fallback. "requires_restore" is rejected by blue-green activation.
+	DatabaseUpgrade string `yaml:"database_upgrade,omitempty" json:"database_upgrade,omitempty"`
+	HealthCheck     string `yaml:"health_check" json:"health_check"`
 	// BindHost — interface the sidecar listens on. Default loopback
 	// ("127.0.0.1") because predictable APTEVA_APP_TOKENs (dev-<id>
 	// form) make wider exposure risky for most apps; the platform
@@ -1070,6 +1076,15 @@ func ParseManifest(data []byte) (*Manifest, error) {
 // independent of the deployment context. Dynamic checks (image exists,
 // permission scope agrees with what the user consented) live elsewhere.
 func ValidateManifest(m *Manifest) error {
+	if m.Runtime.StartupTimeoutSeconds < 0 || m.Runtime.StartupTimeoutSeconds > 3600 {
+		return fmt.Errorf("runtime.startup_timeout_seconds must be between 0 and 3600")
+	}
+	switch m.Runtime.DatabaseUpgrade {
+	case "", "backward_compatible", "requires_restore":
+	default:
+		return fmt.Errorf("runtime.database_upgrade must be backward_compatible or requires_restore")
+	}
+
 	if m.Schema != SchemaCurrent {
 		return fmt.Errorf("schema %q not supported (this SDK speaks %s)", m.Schema, SchemaCurrent)
 	}

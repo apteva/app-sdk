@@ -3,15 +3,21 @@ package sdk
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
+	"modernc.org/sqlite"
 	"regexp"
 	"strings"
+	"time"
 )
 
 // A migration and its receipt commit together, including legacy table-rebuild
 // scripts with their own transaction wrappers. Trigger BEGIN/END bodies survive.
 func applyMigration(db *sql.DB, filename, body string) error {
-	ctx := context.Background()
+	return applyMigrationContext(context.Background(), db, filename, body)
+}
+
+func applyMigrationContext(ctx context.Context, db *sql.DB, filename, body string) error {
 	conn, err := db.Conn(ctx)
 	if err != nil {
 		return err
@@ -50,18 +56,18 @@ func applyMigration(db *sql.DB, filename, body string) error {
 		if _, err = conn.ExecContext(ctx, "PRAGMA foreign_keys=OFF"); err != nil {
 			return err
 		}
-		defer conn.ExecContext(ctx, fmt.Sprintf("PRAGMA foreign_keys=%d", foreignKeys))
+		defer conn.ExecContext(context.Background(), fmt.Sprintf("PRAGMA foreign_keys=%d", foreignKeys))
 	}
 	tx, err := conn.BeginTx(ctx, nil)
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback()
-	if _, err = tx.Exec(strings.Join(lines, "\n")); err != nil {
+	if _, err = tx.ExecContext(ctx, strings.Join(lines, "\n")); err != nil {
 		return fmt.Errorf("migration %s: %w", filename, err)
 	}
 	if disableFK {
-		rows, e := tx.Query("PRAGMA foreign_key_check")
+		rows, e := tx.QueryContext(ctx, "PRAGMA foreign_key_check")
 		if e != nil {
 			return e
 		}
@@ -75,11 +81,34 @@ func applyMigration(db *sql.DB, filename, body string) error {
 			return fmt.Errorf("migration %s violates foreign keys", filename)
 		}
 	}
-	if _, err = tx.Exec("INSERT INTO _migrations(filename) VALUES (?)", filename); err != nil {
+	if _, err = tx.ExecContext(ctx, "INSERT INTO _migrations(filename) VALUES (?)", filename); err != nil {
 		return err
 	}
 	if err = tx.Commit(); err != nil {
 		return fmt.Errorf("commit migration %s: %w", filename, err)
 	}
 	return nil
+}
+
+// A short busy wait makes SQLite cancellation responsive. Retry only atomic
+// startup units; never replay an arbitrary application write after partial work.
+func retryStartupBusy(ctx context.Context, operation func() error) error {
+	if ctx.Done() == nil {
+		return operation()
+	}
+	for {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		err := operation()
+		var sqliteErr *sqlite.Error
+		if err == nil || !errors.As(err, &sqliteErr) || (sqliteErr.Code()&255) != 5 {
+			return err
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(25 * time.Millisecond):
+		}
+	}
 }

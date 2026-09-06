@@ -187,3 +187,36 @@ APTEVA_INSTALL_ID=0 \
 APTEVA_APP_CONFIG='{"foo":"bar"}' \
 go run .
 ```
+
+### Migration-aware initialization
+
+Apps can declare `runtime.startup_timeout_seconds` (1–3600 seconds; zero uses
+60 seconds in the SDK and the caller's existing platform default) and
+`runtime.database_upgrade` (`backward_compatible` or `requires_restore`).
+These fields require a platform release that implements the startup contract;
+Apteva 0.50.1 does not honor the extended deadline.
+
+The SDK listens before opening the database and running `OnMount`. Until both
+finish, `/health` returns HTTP 503 with `status: initializing`, `phase`,
+`completed`, `total`, and `elapsed_ms`. All other routes return 503. A completed
+mount publishes the real routes and `/health` returns HTTP 200 with
+`status: ready`. Failed or canceled initialization never publishes app routes.
+
+Use `ctx.StartupContext()` for all mount-time database work. It is canceled on
+SIGTERM, SIGINT, or the absolute startup deadline, and is also canceled once
+mounting finishes. Do not use it for long-lived workers. Use
+`ctx.ReportStartupProgress("tables", completed, total)` to publish progress;
+phase names must not contain credentials or customer data. Progress does not
+extend the deadline. Apps must cooperate with cancellation; the supervisor
+still enforces termination for apps that ignore it.
+
+SQLite initialization uses a one-second writer lock wait and retries atomic SQL
+migrations within the remaining deadline. Normal operation restores the
+30-second writer wait. Each SQL migration and its receipt commit together;
+cancellation rolls back the current migration, not earlier committed files.
+
+`backward_compatible` is an app author's tested compatibility declaration, not a
+platform database restore guarantee. Failed activation restores only the prior
+process/routing. Automatic activation of `requires_restore` apps is rejected:
+those apps need an offline migration and a verified backup/restore procedure.
+Do not restore a database underneath a running writer.

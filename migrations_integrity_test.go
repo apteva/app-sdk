@@ -1,9 +1,11 @@
 package sdk
 
 import (
+	"context"
 	"database/sql"
 	"path/filepath"
 	"testing"
+	"time"
 )
 
 func TestMigrationAtomicReceiptAndLegacyRebuild(t *testing.T) {
@@ -61,5 +63,38 @@ PRAGMA foreign_keys=ON;`)
 	db.QueryRow("SELECT count(*) FROM child").Scan(&n)
 	if n != 1 {
 		t.Fatal("bad foreign key committed")
+	}
+}
+
+func TestMigrationCancellationRollsBackSchemaAndReceipt(t *testing.T) {
+	db, err := sql.Open("sqlite", "file:"+filepath.Join(t.TempDir(), "cancel.db")+"?_pragma=foreign_keys(on)")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	db.SetMaxOpenConns(1)
+	if _, err := db.Exec("CREATE TABLE _migrations(filename TEXT PRIMARY KEY)"); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 25*time.Millisecond)
+	defer cancel()
+	err = applyMigrationContext(ctx, db, "cancel.sql", `PRAGMA foreign_keys=OFF;
+ CREATE TABLE partial(id INTEGER);
+ WITH RECURSIVE seq(n) AS (VALUES(1) UNION ALL SELECT n+1 FROM seq WHERE n<100000000) INSERT INTO partial SELECT n FROM seq;
+ PRAGMA foreign_keys=ON;`)
+	if err == nil {
+		t.Fatal("canceled SQL migration succeeded")
+	}
+	var n int
+	for _, q := range []string{"SELECT count(*) FROM sqlite_master WHERE name='partial'", "SELECT count(*) FROM _migrations"} {
+		if err := db.QueryRow(q).Scan(&n); err != nil || n != 0 {
+			t.Fatalf("partial commit: %d %v", n, err)
+		}
+	}
+	if err := db.QueryRow("PRAGMA foreign_keys").Scan(&n); err != nil || n != 1 {
+		t.Fatalf("foreign key setting not restored: %d %v", n, err)
+	}
+	if err := applyMigration(db, "cancel.sql", "CREATE TABLE partial(id INTEGER)"); err != nil {
+		t.Fatal("resume failed", err)
 	}
 }
