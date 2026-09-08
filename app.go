@@ -1669,13 +1669,16 @@ type RealtimeSpawnResult struct {
 	// AudioBridgeURL in case the app wants to dial through a
 	// different host (e.g. proxy). Single-use.
 	AudioToken string `json:"audio_token,omitempty"`
-	// EffectiveTools and EffectiveMCP are the live capability surface reported
-	// by Core after spawn. Nil means verification was unavailable; an empty,
-	// non-nil list is an authoritative "none".
+	// Capabilities separates grants, connected/registered tools, and confirmed
+	// provider presentation. Older cores report unknown readiness with grants.
+	Capabilities *RealtimeCapabilities `json:"capabilities,omitempty"`
+	// Deprecated compatibility projections. These are populated only when
+	// Capabilities.Verified(): EffectiveTools mirrors PresentedTools and
+	// EffectiveMCP mirrors ConnectedMCP. Unknown verification yields nil.
 	EffectiveTools []string `json:"effective_tools"`
 	EffectiveMCP   []string `json:"effective_mcp"`
-	// CapabilitiesVerified reports whether the effective lists came from the
-	// live Core thread. When false, both effective lists are nil.
+	// True only for a confirmed active-session presentation snapshot. Use
+	// MissingPresentedTools to additionally verify app-required tools.
 	CapabilitiesVerified bool `json:"capabilities_verified"`
 }
 
