@@ -493,8 +493,10 @@ type UISurface struct {
 
 // RouteSpec — the app sidecar serves these prefixes; platform reverse-
 // proxies /apps/<name><prefix> to the sidecar. no_auth lets the
-// platform gateway pass anonymous requests through to a route that
-// does its own token/signature validation.
+// platform gateway and sidecar token gate pass requests through without
+// requiring an installation token. The route must serve public content or
+// perform its own token/signature validation. An explicit Method limits this
+// exemption to that method.
 type RouteSpec struct {
 	Method string `yaml:"method,omitempty" json:"method,omitempty"`
 	Prefix string `yaml:"prefix" json:"prefix"`
