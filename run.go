@@ -137,7 +137,7 @@ func runApp(lifetime context.Context, app App) error {
 	mux := http.NewServeMux()
 	mountAppRoutes(mux, app, ctx)
 	mountFrameworkRoutes(mux, app, ctx)
-	if !status.ready(startupCtx, withTokenAuth(mux)) {
+	if !status.ready(startupCtx, withTokenAuth(mux, manifest.Provides.HTTPRoutes...)) {
 		return fmt.Errorf("initialization deadline expired")
 	}
 	cancelStartup()
@@ -222,7 +222,11 @@ func mountAppRoutes(mux *http.ServeMux, app App, ctx *AppCtx) {
 // behavior, while patterns containing wildcards use http.ServeMux itself so
 // routes such as /v1/devices/{id}/test match exactly as they do at dispatch.
 func matchesPublicRoute(path string) bool {
-	for _, p := range publicRoutePaths {
+	return matchesPublicRoutePatterns(path, publicRoutePaths)
+}
+
+func matchesPublicRoutePatterns(path string, patterns []string) bool {
+	for _, p := range patterns {
 		if p == "" {
 			p = "/"
 		}
@@ -474,8 +478,8 @@ func parseSchedule(s string) (time.Duration, error) {
 // webhooks:
 //
 //  1. /health — the orchestrator's liveness probe never has a token.
-//  2. Explicit Route.NoAuth routes — signed downloads must opt in on
-//     their exact route and validate the signature in their handler.
+//  2. Explicit Route.NoAuth or manifest no_auth routes — signed downloads
+//     must opt in on their exact route and validate the signature in their handler.
 //     Query parameters never relax authentication on protected routes.
 //  3. /webhooks/* — provider-callback endpoints (SES/SNS, Twilio,
 //     Stripe, GitHub, etc.). The provider signs the request payload
@@ -484,8 +488,12 @@ func parseSchedule(s string) (time.Duration, error) {
 //     This carve-out exists because external providers don't have
 //     our APTEVA_APP_TOKEN and can't be made to use one — their
 //     authenticity comes from per-provider request signing.
-func withTokenAuth(h http.Handler) http.Handler {
+func withTokenAuth(h http.Handler, declaredRoutes ...RouteSpec) http.Handler {
 	expected := os.Getenv("APTEVA_APP_TOKEN")
+	// Keep manifest declarations local to this handler. Framework-served UI
+	// files have no HTTPRoutes() entry, but the gateway already honors their
+	// manifest no_auth declarations and preserves the caller's bearer token.
+	declaredRoutes = append([]RouteSpec(nil), declaredRoutes...)
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/health" {
 			h.ServeHTTP(w, r)
@@ -510,6 +518,13 @@ func withTokenAuth(h http.Handler) http.Handler {
 		if matchesPublicRoute(r.URL.Path) {
 			h.ServeHTTP(w, r)
 			return
+		}
+		for _, route := range declaredRoutes {
+			if route.NoAuth && (route.Method == "" || strings.EqualFold(route.Method, r.Method)) &&
+				matchesPublicRoutePatterns(r.URL.Path, []string{route.Prefix}) {
+				h.ServeHTTP(w, r)
+				return
+			}
 		}
 		got := r.Header.Get("Authorization")
 		if got != "Bearer "+expected {
