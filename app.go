@@ -1210,6 +1210,14 @@ type PlatformBackupClient interface {
 	RestorePlatformSnapshot(ctx context.Context, body io.Reader, size int64) (map[string]any, error)
 }
 
+// PlatformBackupRecoveryClient adds portable recovery without changing existing
+// PlatformBackupClient implementations or application test doubles.
+type PlatformBackupRecoveryClient interface {
+	PlatformBackupClient
+	OpenPlatformSnapshotWithPassphrase(context.Context, string) (io.ReadCloser, error)
+	RestorePlatformSnapshotWithPassphrase(context.Context, io.Reader, int64, string) (map[string]any, error)
+}
+
 // BrowserOriginRegistration is one app-owned public-client origin set. Key is
 // an opaque, stable identifier chosen by the app (typically an OAuth/API client
 // id). Origins contain exact HTTP(S) origins; wildcard registrations are not
