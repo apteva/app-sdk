@@ -141,3 +141,38 @@ func containsPermission(values []Permission, target Permission) bool {
 	}
 	return false
 }
+
+func TestPortableRecoveryPassphraseUsesAuthenticatedHeaders(t *testing.T) {
+	const passphrase = "offline recovery passphrase"
+	for _, operation := range []string{"snapshot", "restore"} {
+		t.Run(operation, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.Header.Get("X-Backup-Passphrase") != passphrase || r.Header.Get("Authorization") != "Bearer app-test-token" {
+					t.Error("missing authenticated recovery headers")
+				}
+				if r.URL.RawQuery != "" {
+					t.Error("recovery passphrase must not enter URLs")
+				}
+				if operation == "snapshot" {
+					io.WriteString(w, "archive")
+				} else {
+					io.Copy(io.Discard, r.Body)
+					io.WriteString(w, `{"restart_required":true}`)
+				}
+			}))
+			defer server.Close()
+			client := backupTestClient(server)
+			if operation == "snapshot" {
+				body, err := client.OpenPlatformSnapshotWithPassphrase(context.Background(), passphrase)
+				if err != nil {
+					t.Fatal(err)
+				}
+				body.Close()
+			} else {
+				if _, err := client.RestorePlatformSnapshotWithPassphrase(context.Background(), strings.NewReader("archive"), 7, passphrase); err != nil {
+					t.Fatal(err)
+				}
+			}
+		})
+	}
+}

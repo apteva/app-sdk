@@ -493,8 +493,10 @@ type UISurface struct {
 
 // RouteSpec — the app sidecar serves these prefixes; platform reverse-
 // proxies /apps/<name><prefix> to the sidecar. no_auth lets the
-// platform gateway pass anonymous requests through to a route that
-// does its own token/signature validation.
+// platform gateway and sidecar token gate pass requests through without
+// requiring an installation token. The route must serve public content or
+// perform its own token/signature validation. An explicit Method limits this
+// exemption to that method.
 type RouteSpec struct {
 	Method string `yaml:"method,omitempty" json:"method,omitempty"`
 	Prefix string `yaml:"prefix" json:"prefix"`
@@ -984,6 +986,9 @@ const (
 	// PermPlatformBackupRestore is intentionally separate from snapshot read:
 	// restoring replaces live app data and stages the platform DB for restart.
 	PermPlatformBackupRestore Permission = "platform.backup.restore"
+	// PermDashboardConnect allows an admin-owned install to extend the entire
+	// dashboard CSP with exact HTTPS connection destinations. Separate from CORS.
+	PermDashboardConnect Permission = "platform.dashboard.connect"
 	// PermTelemetryRead lets an app subscribe to live agent telemetry
 	// (thoughts, tool calls, LLM token deltas) for agents its installing
 	// user owns, via the ephemeral callback SSE stream. Deliberately its
@@ -1017,6 +1022,7 @@ func AllPermissions() []Permission {
 		PermIngressRead, PermIngressWrite,
 		PermDNSRead, PermDNSWrite,
 		PermPlatformBackupRead, PermPlatformBackupRestore,
+		PermDashboardConnect,
 		PermTelemetryRead,
 		PermTemplatesRead,
 	}
@@ -1032,6 +1038,8 @@ func PermissionDescription(permission Permission) string {
 		return "Read and stream a full backup of the platform and installed app databases."
 	case PermPlatformBackupRestore:
 		return "Restore a platform backup, replacing app data and staging the platform database for restart."
+	case PermDashboardConnect:
+		return "Allow the entire dashboard to connect to registered HTTPS destinations. Requires an administrator-owned installation; does not grant CORS or file access."
 	case PermTelemetryRead:
 		return "Subscribe to live telemetry (thoughts, tool calls, streaming output) from agents you own."
 	case PermConnectionsManageOwnedCredentials:

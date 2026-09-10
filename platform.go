@@ -65,12 +65,21 @@ func newHTTPPlatformClient(baseURL, token string) PlatformClient {
 const platformBackupErrorLimit = 64 << 10
 
 func (c *httpPlatformClient) OpenPlatformSnapshot(ctx context.Context) (io.ReadCloser, error) {
+	return c.OpenPlatformSnapshotWithPassphrase(ctx, "")
+}
+
+// OpenPlatformSnapshotWithPassphrase wraps the server recovery key inside the
+// snapshot. The passphrase is sent only in an authenticated request header.
+func (c *httpPlatformClient) OpenPlatformSnapshotWithPassphrase(ctx context.Context, passphrase string) (io.ReadCloser, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.baseURL+"/api/apps/callback/platform/snapshot", nil)
 	if err != nil {
 		return nil, err
+	}
+	if passphrase != "" {
+		req.Header.Set("X-Backup-Passphrase", passphrase)
 	}
 	c.addAuth(req)
 	resp, err := c.platformStreamClient().Do(req)
@@ -85,6 +94,10 @@ func (c *httpPlatformClient) OpenPlatformSnapshot(ctx context.Context) (io.ReadC
 }
 
 func (c *httpPlatformClient) RestorePlatformSnapshot(ctx context.Context, body io.Reader, size int64) (map[string]any, error) {
+	return c.RestorePlatformSnapshotWithPassphrase(ctx, body, size, "")
+}
+
+func (c *httpPlatformClient) RestorePlatformSnapshotWithPassphrase(ctx context.Context, body io.Reader, size int64, passphrase string) (map[string]any, error) {
 	if body == nil {
 		return nil, errors.New("platform restore body is required")
 	}
@@ -106,6 +119,9 @@ func (c *httpPlatformClient) RestorePlatformSnapshot(ctx context.Context, body i
 		// Override net/http's reader-size inference so -1 has the promised
 		// chunked-transfer meaning even for bytes.Buffer/bytes.Reader inputs.
 		req.ContentLength = -1
+	}
+	if passphrase != "" {
+		req.Header.Set("X-Backup-Passphrase", passphrase)
 	}
 	c.addAuth(req)
 	resp, err := c.platformStreamClient().Do(req)
