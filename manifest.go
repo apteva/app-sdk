@@ -8,6 +8,7 @@
 package sdk
 
 import (
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"net/url"
@@ -641,7 +642,11 @@ type Runtime struct {
 	Kind     string            `yaml:"kind" json:"kind"` // service | source | static
 	Image    string            `yaml:"image" json:"image"`
 	Binaries map[string]string `yaml:"binaries" json:"binaries"` // key: "<os>-<arch>" e.g. "linux-amd64", "darwin-arm64"
-	Source   *SourceSpec       `yaml:"source,omitempty" json:"source,omitempty"`
+	// Artifacts are complete, checksummed prebuilt sidecar archives, keyed by OS-arch.
+	// A matching artifact takes precedence over source compilation; a failed
+	// download or verification is an error, never an implicit source fallback.
+	Artifacts map[string]BundleSpec `yaml:"artifacts,omitempty" json:"artifacts,omitempty"`
+	Source    *SourceSpec           `yaml:"source,omitempty" json:"source,omitempty"`
 	// Bundle — prebuilt static-asset tarball delivery for kind: static.
 	// CI builds dist/, packs it as <name>-<version>.tgz, uploads to a
 	// release; the server downloads, verifies sha256, extracts. Lets
@@ -1156,6 +1161,19 @@ func ValidateManifest(m *Manifest) error {
 			return fmt.Errorf("runtime.bundle.sha256 must be 64 hex chars (got %d)", len(m.Runtime.Bundle.SHA256))
 		}
 	}
+	if len(m.Runtime.Artifacts) > 0 && m.Runtime.Kind != "source" && m.Runtime.Kind != "service" {
+		return errors.New("runtime.artifacts requires kind=source or service")
+	}
+	for platform, artifact := range m.Runtime.Artifacts {
+		parts := strings.Split(platform, "-")
+		if len(parts) != 2 || parts[0] == "" || parts[1] == "" || strings.ContainsAny(platform, "/\\ .") {
+			return fmt.Errorf("invalid artifact platform %q", platform)
+		}
+		digest, err := hex.DecodeString(artifact.SHA256)
+		if artifact.URL == "" || err != nil || len(digest) != 32 {
+			return fmt.Errorf("runtime.artifacts.%s requires URL and 64 hex SHA-256", platform)
+		}
+	}
 	if m.Runtime.Kind == "source" {
 		if m.Runtime.Source == nil || m.Runtime.Source.Repo == "" {
 			return errors.New("runtime.source.repo required when kind=source")
@@ -1166,8 +1184,8 @@ func ValidateManifest(m *Manifest) error {
 	}
 	if m.Runtime.Kind == "service" {
 		// At least one delivery mode must be declared.
-		if m.Runtime.Image == "" && len(m.Runtime.Binaries) == 0 && m.Runtime.Source == nil {
-			return errors.New("runtime requires source, binaries, or image")
+		if m.Runtime.Image == "" && len(m.Runtime.Binaries) == 0 && len(m.Runtime.Artifacts) == 0 && m.Runtime.Source == nil {
+			return errors.New("runtime requires source, artifacts, binaries, or image")
 		}
 		if m.Runtime.Port == 0 {
 			return errors.New("runtime.port required when kind=service")
