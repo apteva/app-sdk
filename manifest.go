@@ -899,12 +899,13 @@ const (
 	PermInstancesWrite     Permission = "platform.instances.write"
 	// PermThreadsWrite lets an app target events at, create, and stop opaque
 	// threads belonging to agents in the app install's project scope.
-	PermThreadsWrite  Permission = "platform.threads.write"
-	PermMCPAttach     Permission = "platform.mcp.attach"
-	PermChannelsSend  Permission = "platform.channels.send"
-	PermAppsCall      Permission = "platform.apps.call"
-	PermFSReadShared  Permission = "fs.read.shared"
-	PermFSWriteShared Permission = "fs.write.shared"
+	PermThreadsWrite    Permission = "platform.threads.write"
+	PermMCPAttach       Permission = "platform.mcp.attach"
+	PermChannelsSend    Permission = "platform.channels.send"
+	PermAppsCall        Permission = "platform.apps.call"
+	PermEventsSubscribe Permission = "platform.events.subscribe"
+	PermFSReadShared    Permission = "fs.read.shared"
+	PermFSWriteShared   Permission = "fs.write.shared"
 	// PermOAuthStart lets an app initiate an OAuth dance against any
 	// integration in the catalog and store the resulting connection
 	// under its own ownership (created_via=app_install). Bundled with
@@ -1009,7 +1010,7 @@ func AllPermissions() []Permission {
 		PermDBWriteApp, PermNetEgress,
 		PermConnectionsRead, PermConnectionsWrite, PermConnectionsExecute,
 		PermInstancesRead, PermInstancesWrite, PermThreadsWrite,
-		PermMCPAttach, PermChannelsSend, PermAppsCall,
+		PermMCPAttach, PermChannelsSend, PermAppsCall, PermEventsSubscribe,
 		PermFSReadShared, PermFSWriteShared,
 		PermOAuthStart, PermConnectionsManage, PermConnectionsManageOwnedCredentials,
 		PermManagedTenantsManage,
