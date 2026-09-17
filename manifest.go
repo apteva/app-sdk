@@ -8,6 +8,7 @@
 package sdk
 
 import (
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"net/url"
@@ -493,8 +494,10 @@ type UISurface struct {
 
 // RouteSpec — the app sidecar serves these prefixes; platform reverse-
 // proxies /apps/<name><prefix> to the sidecar. no_auth lets the
-// platform gateway pass anonymous requests through to a route that
-// does its own token/signature validation.
+// platform gateway and sidecar token gate pass requests through without
+// requiring an installation token. The route must serve public content or
+// perform its own token/signature validation. An explicit Method limits this
+// exemption to that method.
 type RouteSpec struct {
 	Method string `yaml:"method,omitempty" json:"method,omitempty"`
 	Prefix string `yaml:"prefix" json:"prefix"`
@@ -639,7 +642,11 @@ type Runtime struct {
 	Kind     string            `yaml:"kind" json:"kind"` // service | source | static
 	Image    string            `yaml:"image" json:"image"`
 	Binaries map[string]string `yaml:"binaries" json:"binaries"` // key: "<os>-<arch>" e.g. "linux-amd64", "darwin-arm64"
-	Source   *SourceSpec       `yaml:"source,omitempty" json:"source,omitempty"`
+	// Artifacts are complete, checksummed prebuilt sidecar archives, keyed by OS-arch.
+	// A matching artifact takes precedence over source compilation; a failed
+	// download or verification is an error, never an implicit source fallback.
+	Artifacts map[string]BundleSpec `yaml:"artifacts,omitempty" json:"artifacts,omitempty"`
+	Source    *SourceSpec           `yaml:"source,omitempty" json:"source,omitempty"`
 	// Bundle — prebuilt static-asset tarball delivery for kind: static.
 	// CI builds dist/, packs it as <name>-<version>.tgz, uploads to a
 	// release; the server downloads, verifies sha256, extracts. Lets
@@ -897,12 +904,13 @@ const (
 	PermInstancesWrite     Permission = "platform.instances.write"
 	// PermThreadsWrite lets an app target events at, create, and stop opaque
 	// threads belonging to agents in the app install's project scope.
-	PermThreadsWrite  Permission = "platform.threads.write"
-	PermMCPAttach     Permission = "platform.mcp.attach"
-	PermChannelsSend  Permission = "platform.channels.send"
-	PermAppsCall      Permission = "platform.apps.call"
-	PermFSReadShared  Permission = "fs.read.shared"
-	PermFSWriteShared Permission = "fs.write.shared"
+	PermThreadsWrite    Permission = "platform.threads.write"
+	PermMCPAttach       Permission = "platform.mcp.attach"
+	PermChannelsSend    Permission = "platform.channels.send"
+	PermAppsCall        Permission = "platform.apps.call"
+	PermEventsSubscribe Permission = "platform.events.subscribe"
+	PermFSReadShared    Permission = "fs.read.shared"
+	PermFSWriteShared   Permission = "fs.write.shared"
 	// PermOAuthStart lets an app initiate an OAuth dance against any
 	// integration in the catalog and store the resulting connection
 	// under its own ownership (created_via=app_install). Bundled with
@@ -984,6 +992,9 @@ const (
 	// PermPlatformBackupRestore is intentionally separate from snapshot read:
 	// restoring replaces live app data and stages the platform DB for restart.
 	PermPlatformBackupRestore Permission = "platform.backup.restore"
+	// PermDashboardConnect allows an admin-owned install to extend the entire
+	// dashboard CSP with exact HTTPS connection destinations. Separate from CORS.
+	PermDashboardConnect Permission = "platform.dashboard.connect"
 	// PermTelemetryRead lets an app subscribe to live agent telemetry
 	// (thoughts, tool calls, LLM token deltas) for agents its installing
 	// user owns, via the ephemeral callback SSE stream. Deliberately its
@@ -1004,7 +1015,7 @@ func AllPermissions() []Permission {
 		PermDBWriteApp, PermNetEgress,
 		PermConnectionsRead, PermConnectionsWrite, PermConnectionsExecute,
 		PermInstancesRead, PermInstancesWrite, PermThreadsWrite,
-		PermMCPAttach, PermChannelsSend, PermAppsCall,
+		PermMCPAttach, PermChannelsSend, PermAppsCall, PermEventsSubscribe,
 		PermFSReadShared, PermFSWriteShared,
 		PermOAuthStart, PermConnectionsManage, PermConnectionsManageOwnedCredentials,
 		PermManagedTenantsManage,
@@ -1017,6 +1028,7 @@ func AllPermissions() []Permission {
 		PermIngressRead, PermIngressWrite,
 		PermDNSRead, PermDNSWrite,
 		PermPlatformBackupRead, PermPlatformBackupRestore,
+		PermDashboardConnect,
 		PermTelemetryRead,
 		PermTemplatesRead,
 	}
@@ -1032,6 +1044,8 @@ func PermissionDescription(permission Permission) string {
 		return "Read and stream a full backup of the platform and installed app databases."
 	case PermPlatformBackupRestore:
 		return "Restore a platform backup, replacing app data and staging the platform database for restart."
+	case PermDashboardConnect:
+		return "Allow the entire dashboard to connect to registered HTTPS destinations. Requires an administrator-owned installation; does not grant CORS or file access."
 	case PermTelemetryRead:
 		return "Subscribe to live telemetry (thoughts, tool calls, streaming output) from agents you own."
 	case PermConnectionsManageOwnedCredentials:
@@ -1148,6 +1162,19 @@ func ValidateManifest(m *Manifest) error {
 			return fmt.Errorf("runtime.bundle.sha256 must be 64 hex chars (got %d)", len(m.Runtime.Bundle.SHA256))
 		}
 	}
+	if len(m.Runtime.Artifacts) > 0 && m.Runtime.Kind != "source" && m.Runtime.Kind != "service" {
+		return errors.New("runtime.artifacts requires kind=source or service")
+	}
+	for platform, artifact := range m.Runtime.Artifacts {
+		parts := strings.Split(platform, "-")
+		if len(parts) != 2 || parts[0] == "" || parts[1] == "" || strings.ContainsAny(platform, "/\\ .") {
+			return fmt.Errorf("invalid artifact platform %q", platform)
+		}
+		digest, err := hex.DecodeString(artifact.SHA256)
+		if artifact.URL == "" || err != nil || len(digest) != 32 {
+			return fmt.Errorf("runtime.artifacts.%s requires URL and 64 hex SHA-256", platform)
+		}
+	}
 	if m.Runtime.Kind == "source" {
 		if m.Runtime.Source == nil || m.Runtime.Source.Repo == "" {
 			return errors.New("runtime.source.repo required when kind=source")
@@ -1158,8 +1185,8 @@ func ValidateManifest(m *Manifest) error {
 	}
 	if m.Runtime.Kind == "service" {
 		// At least one delivery mode must be declared.
-		if m.Runtime.Image == "" && len(m.Runtime.Binaries) == 0 && m.Runtime.Source == nil {
-			return errors.New("runtime requires source, binaries, or image")
+		if m.Runtime.Image == "" && len(m.Runtime.Binaries) == 0 && len(m.Runtime.Artifacts) == 0 && m.Runtime.Source == nil {
+			return errors.New("runtime requires source, artifacts, binaries, or image")
 		}
 		if m.Runtime.Port == 0 {
 			return errors.New("runtime.port required when kind=service")

@@ -27,10 +27,11 @@ import (
 // time is bounded by the platform's own per-tool timeout — generous
 // here, restrictive at the next hop.
 type httpPlatformClient struct {
-	baseURL    string
-	token      string
-	client     *http.Client
-	slowClient *http.Client
+	baseURL     string
+	token       string
+	userSession string
+	client      *http.Client
+	slowClient  *http.Client
 	// streamClient has no whole-request timeout. Long transfers are bounded by
 	// the context supplied by the app, while the transport still enforces its
 	// normal connection and response-header deadlines.
@@ -50,6 +51,21 @@ type httpPlatformClient struct {
 
 const piCacheTTL = 60 * time.Second
 
+func platformWithUserSession(client PlatformClient, session string) PlatformClient {
+	switch c := client.(type) {
+	case *httpPlatformClient:
+		// Share transports, but never copy the cache mutex or share user state.
+		return &httpPlatformClient{
+			baseURL: c.baseURL, token: c.token, userSession: session,
+			client: c.client, slowClient: c.slowClient, streamClient: c.streamClient,
+		}
+	case *projectScopedClient:
+		return &projectScopedClient{inner: platformWithUserSession(c.inner, session), projectID: c.projectID}
+	default:
+		return client
+	}
+}
+
 func newHTTPPlatformClient(baseURL, token string) PlatformClient {
 	if baseURL == "" {
 		baseURL = "http://127.0.0.1:5280"
@@ -65,12 +81,21 @@ func newHTTPPlatformClient(baseURL, token string) PlatformClient {
 const platformBackupErrorLimit = 64 << 10
 
 func (c *httpPlatformClient) OpenPlatformSnapshot(ctx context.Context) (io.ReadCloser, error) {
+	return c.OpenPlatformSnapshotWithPassphrase(ctx, "")
+}
+
+// OpenPlatformSnapshotWithPassphrase wraps the server recovery key inside the
+// snapshot. The passphrase is sent only in an authenticated request header.
+func (c *httpPlatformClient) OpenPlatformSnapshotWithPassphrase(ctx context.Context, passphrase string) (io.ReadCloser, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.baseURL+"/api/apps/callback/platform/snapshot", nil)
 	if err != nil {
 		return nil, err
+	}
+	if passphrase != "" {
+		req.Header.Set("X-Backup-Passphrase", passphrase)
 	}
 	c.addAuth(req)
 	resp, err := c.platformStreamClient().Do(req)
@@ -85,6 +110,10 @@ func (c *httpPlatformClient) OpenPlatformSnapshot(ctx context.Context) (io.ReadC
 }
 
 func (c *httpPlatformClient) RestorePlatformSnapshot(ctx context.Context, body io.Reader, size int64) (map[string]any, error) {
+	return c.RestorePlatformSnapshotWithPassphrase(ctx, body, size, "")
+}
+
+func (c *httpPlatformClient) RestorePlatformSnapshotWithPassphrase(ctx context.Context, body io.Reader, size int64, passphrase string) (map[string]any, error) {
 	if body == nil {
 		return nil, errors.New("platform restore body is required")
 	}
@@ -106,6 +135,9 @@ func (c *httpPlatformClient) RestorePlatformSnapshot(ctx context.Context, body i
 		// Override net/http's reader-size inference so -1 has the promised
 		// chunked-transfer meaning even for bytes.Buffer/bytes.Reader inputs.
 		req.ContentLength = -1
+	}
+	if passphrase != "" {
+		req.Header.Set("X-Backup-Passphrase", passphrase)
 	}
 	c.addAuth(req)
 	resp, err := c.platformStreamClient().Do(req)
@@ -1393,6 +1425,9 @@ func (c *httpPlatformClient) addAuth(req *http.Request) {
 	}
 	if c.token != "" {
 		req.Header.Set("Authorization", "Bearer "+c.token)
+	}
+	if c.userSession != "" && strings.HasPrefix(req.URL.Path, "/api/apps/callback/") {
+		req.Header.Set("X-Apteva-User-Session", c.userSession)
 	}
 	req.Header.Set("X-Apteva-App-Install-ID", os.Getenv("APTEVA_INSTALL_ID"))
 	// When this sidecar runs inside a test Environment, forward the

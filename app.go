@@ -520,6 +520,25 @@ func (c *AppCtx) WithProject(projectID string) *AppCtx {
 	return &cp
 }
 
+// WithUserSession returns a request-scoped context whose platform callbacks
+// retain the signed-in browser user's session as well as this app's identity.
+// The server validates both credentials and still enforces app permissions.
+// Use only for work on behalf of an incoming HTTP request; never retain it as
+// the mounted context or use it for independent background work. Without a
+// session cookie the app's existing service identity is preserved.
+func (c *AppCtx) WithUserSession(r *http.Request) *AppCtx {
+	if c == nil || r == nil {
+		return c
+	}
+	cookie, err := r.Cookie("session")
+	if err != nil || cookie.Value == "" {
+		return c
+	}
+	cp := *c
+	cp.platform = platformWithUserSession(c.platform, cookie.Value)
+	return &cp
+}
+
 // IntegrationFor returns the binding for a role declared in the
 // manifest's requires.integrations. Returns nil when:
 //
@@ -1208,6 +1227,14 @@ type PlatformBackupClient interface {
 	// RestorePlatformSnapshot streams a gzip snapshot into the platform. Pass
 	// -1 when the content length is unknown and chunked transfer is required.
 	RestorePlatformSnapshot(ctx context.Context, body io.Reader, size int64) (map[string]any, error)
+}
+
+// PlatformBackupRecoveryClient adds portable recovery without changing existing
+// PlatformBackupClient implementations or application test doubles.
+type PlatformBackupRecoveryClient interface {
+	PlatformBackupClient
+	OpenPlatformSnapshotWithPassphrase(context.Context, string) (io.ReadCloser, error)
+	RestorePlatformSnapshotWithPassphrase(context.Context, io.Reader, int64, string) (map[string]any, error)
 }
 
 // BrowserOriginRegistration is one app-owned public-client origin set. Key is
