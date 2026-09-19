@@ -564,6 +564,18 @@ type mcpHandler struct {
 const HeaderBoundCallerInstallID = "X-Apteva-Bound-Caller-Install-ID"
 const HeaderBoundCallerAppName = "X-Apteva-Bound-Caller-App-Name"
 
+// HeaderAppCallResult asks the platform callback bridge to unwrap the
+// conventional MCP result before returning it to CallAppResult. It is only
+// honored on an authenticated sidecar callback; it is not an agent-facing
+// protocol feature.
+const HeaderAppCallResult = "X-Apteva-App-Call-Result"
+
+// AppResultJSON is a negotiated success-only direct JSON representation. An
+// absent response header means legacy MCP (including all protocol/tool errors).
+// It must never be inferred from JSON field names in application data.
+const HeaderAppResultFormat = "X-Apteva-App-Result-Format"
+const AppResultJSON = "json-v1"
+
 func newMCPHandler(app App, ctx *AppCtx) http.Handler {
 	tools := app.MCPTools()
 	sort.Slice(tools, func(i, j int) bool { return tools[i].Name < tools[j].Name })
@@ -590,6 +602,20 @@ type mcpError struct {
 }
 
 func (h *mcpHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	if raw := r.Header.Get(HeaderAppCallDeadline); raw != "" && r.Header.Get(HeaderBoundCallerInstallID) != "" {
+		millis, err := strconv.ParseInt(raw, 10, 64)
+		if err != nil {
+			http.Error(w, "invalid app deadline", http.StatusBadRequest)
+			return
+		}
+		ctx, cancel := context.WithDeadline(r.Context(), time.UnixMilli(millis))
+		defer cancel()
+		r = r.WithContext(ctx)
+		if ctx.Err() != nil {
+			http.Error(w, "app deadline exceeded", http.StatusGatewayTimeout)
+			return
+		}
+	}
 	if r.Method != http.MethodPost {
 		http.Error(w, "POST only", http.StatusMethodNotAllowed)
 		return
@@ -721,6 +747,12 @@ func (h *mcpHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		body, jerr := marshalJSONNoHTMLEscape(res)
 		if jerr != nil {
 			writeMCPErr(w, req.ID, -32000, "encode result: "+jerr.Error())
+			return
+		}
+		if r.Header.Get(HeaderAppResultFormat) == AppResultJSON && r.Header.Get(HeaderBoundCallerInstallID) != "" {
+			w.Header().Set(HeaderAppResultFormat, AppResultJSON)
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write(body)
 			return
 		}
 		writeMCP(w, req.ID, map[string]any{"content": []map[string]any{

@@ -404,15 +404,50 @@ func (c *httpPlatformClient) GetIntegrationURLProperty(connID int64, property st
 }
 
 func (c *httpPlatformClient) CallApp(appName, tool string, input map[string]any) (json.RawMessage, error) {
+	return c.CallAppContext(context.Background(), appName, tool, input)
+}
+
+func (c *httpPlatformClient) CallAppContext(ctx context.Context, appName, tool string, input map[string]any) (json.RawMessage, error) {
+	raw, _, err := c.callApp(ctx, appName, tool, input, false)
+	return raw, err
+}
+
+func (c *httpPlatformClient) callApp(ctx context.Context, appName, tool string, input map[string]any, innerResult bool) (json.RawMessage, bool, error) {
 	if input == nil {
 		input = map[string]any{}
 	}
 	body := map[string]any{"tool": tool, "input": input}
-	var out json.RawMessage
-	if err := c.postWith(c.slowClient, "/api/apps/callback/apps/"+appName+"/call", body, &out); err != nil {
-		return nil, err
+	rawBody, err := json.Marshal(body)
+	if err != nil {
+		return nil, false, err
 	}
-	return out, nil
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+"/api/apps/callback/apps/"+url.PathEscape(appName)+"/call", bytes.NewReader(rawBody))
+	if err != nil {
+		return nil, false, err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	if innerResult {
+		req.Header.Set(HeaderAppCallResult, "inner")
+		req.Header.Set(HeaderAppResultFormat, AppResultJSON)
+	}
+	setAppCallDeadline(req)
+	c.addAuth(req)
+	resp, err := c.slowClient.Do(req)
+	if err != nil {
+		return nil, false, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode/100 != 2 {
+		return nil, false, c.platformErr(resp)
+	}
+	out, err := io.ReadAll(io.LimitReader(resp.Body, (16<<20)+1))
+	if err != nil {
+		return nil, false, err
+	}
+	if len(out) > 16<<20 {
+		return nil, false, errors.New("app response too large")
+	}
+	return json.RawMessage(out), resp.Header.Get(HeaderAppResultFormat) == AppResultJSON, nil
 }
 
 // CallAppResult — CallApp + MCP-envelope unwrap. See PlatformClient
@@ -420,11 +455,59 @@ func (c *httpPlatformClient) CallApp(appName, tool string, input map[string]any)
 // CallApp keeps its raw-envelope contract for the apps that already
 // strip the envelope themselves (deploy/domain_link, certs/domain_link).
 func (c *httpPlatformClient) CallAppResult(appName, tool string, input map[string]any, out any) error {
-	raw, err := c.CallApp(appName, tool, input)
+	return c.CallAppResultContext(context.Background(), appName, tool, input, out)
+}
+
+func (c *httpPlatformClient) CallAppResultContext(ctx context.Context, appName, tool string, input map[string]any, out any) error {
+	raw, direct, err := c.callApp(ctx, appName, tool, input, true)
 	if err != nil {
 		return err
 	}
+	if direct {
+		return json.Unmarshal(raw, out)
+	}
 	return decodeMCPEnvelope(raw, appName, tool, out)
+}
+
+func (c *httpPlatformClient) CallAppBatch(appName string, calls []AppCall) ([]AppCallResult, error) {
+	return c.CallAppBatchContext(context.Background(), appName, calls, AppBatchOptions{})
+}
+
+func (c *httpPlatformClient) CallAppBatchContext(ctx context.Context, appName string, calls []AppCall, options AppBatchOptions) ([]AppCallResult, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	if strings.TrimSpace(appName) == "" {
+		return nil, errors.New("CallAppBatch: app name required")
+	}
+	if len(calls) == 0 {
+		return []AppCallResult{}, nil
+	}
+	if len(calls) > 32 {
+		return nil, errors.New("CallAppBatch: maximum 32 calls")
+	}
+	if options.Execution != "" && options.Execution != "sequential" && options.Execution != ParallelIndependent {
+		return nil, errors.New("CallAppBatch: unknown execution mode")
+	}
+	if options.Concurrency < 0 || options.Concurrency > 8 || (options.Execution != ParallelIndependent && options.Concurrency > 1) {
+		return nil, errors.New("CallAppBatch: invalid concurrency")
+	}
+	if options.ResultMode != "" && options.ResultMode != "json" {
+		return nil, errors.New("CallAppBatch: unknown result mode")
+	}
+	var out struct {
+		Results []AppCallResult `json:"results"`
+	}
+	if err := c.postWithContext(ctx, c.slowClient, "/api/apps/callback/apps/"+url.PathEscape(appName)+"/batch", struct {
+		Calls []AppCall `json:"calls"`
+		AppBatchOptions
+	}{calls, options}, &out, 32<<20); err != nil {
+		return nil, err
+	}
+	if out.Results == nil {
+		out.Results = []AppCallResult{}
+	}
+	return out.Results, nil
 }
 
 // decodeMCPEnvelope strips the JSON-RPC + content-array layers and
@@ -1038,6 +1121,35 @@ func (p *projectScopedClient) CallAppResult(appName, tool string, input map[stri
 	return p.inner.CallAppResult(appName, tool, p.withProject(input), out)
 }
 
+func (p *projectScopedClient) CallAppContext(ctx context.Context, app, tool string, input map[string]any) (json.RawMessage, error) {
+	return CallAppContext(ctx, p.inner, app, tool, p.withProject(input))
+}
+
+func (p *projectScopedClient) CallAppResultContext(ctx context.Context, app, tool string, input map[string]any, out any) error {
+	return CallAppResultContext(ctx, p.inner, app, tool, p.withProject(input), out)
+}
+
+func (p *projectScopedClient) CallAppBatchContext(ctx context.Context, app string, calls []AppCall, options AppBatchOptions) ([]AppCallResult, error) {
+	scoped := append([]AppCall(nil), calls...)
+	for i := range scoped {
+		scoped[i].Input = p.withProject(scoped[i].Input)
+	}
+	return CallAppBatchContext(ctx, p.inner, app, scoped, options)
+}
+
+func (p *projectScopedClient) CallAppBatch(appName string, calls []AppCall) ([]AppCallResult, error) {
+	client, ok := p.inner.(AppBatchClient)
+	if !ok {
+		return nil, errors.New("app batch API unavailable")
+	}
+	scoped := make([]AppCall, len(calls))
+	for i, call := range calls {
+		scoped[i] = call
+		scoped[i].Input = p.withProject(call.Input)
+	}
+	return client.CallAppBatch(appName, scoped)
+}
+
 // Pass-throughs for every other method.
 
 func (p *projectScopedClient) GetConnection(id int64) (*PlatformConnection, error) {
@@ -1323,6 +1435,10 @@ func (c *httpPlatformClient) post(path string, body any, out any) error {
 }
 
 func (c *httpPlatformClient) postWith(client *http.Client, path string, body any, out any) error {
+	return c.postWithContext(context.Background(), client, path, body, out)
+}
+
+func (c *httpPlatformClient) postWithContext(ctx context.Context, client *http.Client, path string, body any, out any, responseLimit ...int64) error {
 	var br io.Reader
 	if body != nil {
 		buf, err := json.Marshal(body)
@@ -1331,8 +1447,12 @@ func (c *httpPlatformClient) postWith(client *http.Client, path string, body any
 		}
 		br = bytes.NewReader(buf)
 	}
-	req, _ := http.NewRequest(http.MethodPost, c.baseURL+path, br)
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+path, br)
+	if err != nil {
+		return err
+	}
 	req.Header.Set("Content-Type", "application/json")
+	setAppCallDeadline(req)
 	c.addAuth(req)
 	resp, err := client.Do(req)
 	if err != nil {
@@ -1344,6 +1464,16 @@ func (c *httpPlatformClient) postWith(client *http.Client, path string, body any
 	}
 	if out == nil {
 		return nil
+	}
+	if len(responseLimit) > 0 {
+		data, err := io.ReadAll(io.LimitReader(resp.Body, responseLimit[0]+1))
+		if err != nil {
+			return err
+		}
+		if int64(len(data)) > responseLimit[0] {
+			return errors.New("app batch response too large")
+		}
+		return json.Unmarshal(data, out)
 	}
 	return json.NewDecoder(resp.Body).Decode(out)
 }
