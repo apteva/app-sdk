@@ -269,13 +269,77 @@
         "icon": {"type": "string"}
       }
     },
+    "chatConversationMapping": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "title"],
+      "properties": {
+        "id": {"$ref": "#/$defs/selector"},
+        "title": {"$ref": "#/$defs/selector"},
+        "subtitle": {"$ref": "#/$defs/selector"},
+        "preview": {"$ref": "#/$defs/selector"},
+        "updated_at": {"$ref": "#/$defs/selector"},
+        "unread": {"$ref": "#/$defs/selector"}
+      }
+    },
+    "chatMessageMapping": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "conversation_id", "body"],
+      "properties": {
+        "id": {"$ref": "#/$defs/selector"},
+        "conversation_id": {"$ref": "#/$defs/selector"},
+        "body": {"$ref": "#/$defs/selector"},
+        "author": {"$ref": "#/$defs/selector"},
+        "role": {"$ref": "#/$defs/selector"},
+        "created_at": {"$ref": "#/$defs/selector"},
+        "status": {"$ref": "#/$defs/selector"}
+      }
+    },
+    "eventMapping": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["operation", "source"],
+      "properties": {
+        "operation": {"enum": ["append", "prepend", "upsert", "remove", "invalidate", "set_activity"]},
+        "source": {"$ref": "#/$defs/identifier"},
+        "value": {"$ref": "#/$defs/selector"},
+        "id": {"$ref": "#/$defs/selector"}
+      }
+    },
+    "subscription": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["request", "events"],
+      "properties": {
+        "request": {"$ref": "#/$defs/request"},
+        "cursor_query": {"type": "string"},
+        "events": {"type": "object", "minProperties": 1, "additionalProperties": {"$ref": "#/$defs/eventMapping"}}
+      }
+    },
+    "chatComponent": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["conversations_source", "messages_source", "selection_state", "send_action", "conversation", "message"],
+      "properties": {
+        "conversations_source": {"$ref": "#/$defs/identifier"},
+        "messages_source": {"$ref": "#/$defs/identifier"},
+        "selection_state": {"$ref": "#/$defs/identifier"},
+        "send_action": {"$ref": "#/$defs/identifier"},
+        "create_action": {"$ref": "#/$defs/identifier"},
+        "mark_seen_action": {"$ref": "#/$defs/identifier"},
+        "conversation": {"$ref": "#/$defs/chatConversationMapping"},
+        "message": {"$ref": "#/$defs/chatMessageMapping"},
+        "subscription": {"$ref": "#/$defs/subscription"}
+      }
+    },
     "section": {
       "type": "object",
       "additionalProperties": false,
       "required": ["id", "kind"],
       "properties": {
         "id": {"$ref": "#/$defs/identifier"},
-        "kind": {"enum": ["collection", "metrics", "timeline", "properties", "file_preview", "text"]},
+        "kind": {"enum": ["collection", "metrics", "timeline", "properties", "file_preview", "text", "component"]},
         "title": {"type": "string"},
         "description": {"type": "string"},
         "source": {"$ref": "#/$defs/identifier"},
@@ -290,7 +354,9 @@
         "actions": {"$ref": "#/$defs/stringList"},
         "empty": {"$ref": "#/$defs/semanticState"},
         "loading": {"$ref": "#/$defs/semanticState"},
-        "error": {"$ref": "#/$defs/semanticState"}
+        "error": {"$ref": "#/$defs/semanticState"},
+        "component": {"const": "chat/v1"},
+        "chat": {"$ref": "#/$defs/chatComponent"}
       }
     },
     "destination": {
