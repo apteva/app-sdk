@@ -149,6 +149,7 @@ func TestParseNativeSurfaceChatComponent(t *testing.T) {
         "cursor_query":"since",
         "events":{
           "message":{"operation":"upsert","source":"messages","value":"$.message","id":"$.message.id"},
+          "stream":{"operation":"set_activity","source":"messages","value":"$.text"},
           "changed":{"operation":"invalidate","source":"conversations"}
         }
       }
@@ -166,6 +167,9 @@ func TestParseNativeSurfaceChatComponent(t *testing.T) {
 	chat := surface.Sections[0].Chat
 	if chat == nil || surface.Sections[0].Component != "chat/v1" || chat.MessagesSource != "messages" {
 		t.Fatalf("unexpected chat component: %#v", surface.Sections[0])
+	}
+	if chat.Subscription == nil || chat.Subscription.Events["stream"].Operation != "set_activity" {
+		t.Fatalf("unexpected chat subscription: %#v", chat.Subscription)
 	}
 }
 
