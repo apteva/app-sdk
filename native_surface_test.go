@@ -119,6 +119,73 @@ func TestParseNativeSurfaceComplete(t *testing.T) {
 	}
 }
 
+func TestParseNativeSurfaceChatComponent(t *testing.T) {
+	document := []byte(`{
+  "schema":"apteva-native-surface/v1",
+  "id":"conversations",
+  "version":"1.0.0",
+  "title":"Conversations",
+  "icon":"message-circle",
+  "context":{"scope":"project"},
+  "state":{"conversation_id":{"type":"string","default":""}},
+  "data_sources":{
+    "conversations":{"request":{"method":"GET","path":"/chats"},"response":{"items":"$.chats","id":"$.id"}},
+    "messages":{"request":{"method":"GET","path":"/messages","query":{"conversation_id":"$state.conversation_id"}},"response":{"items":"$.messages","id":"$.id","next_cursor":"$.next_cursor"},"pagination":{"type":"cursor","request_key":"before","response_path":"$.next_cursor","page_size":50}}
+  },
+  "sections":[{
+    "id":"chat",
+    "kind":"component",
+    "component":"chat/v1",
+    "chat":{
+      "conversations_source":"conversations",
+      "messages_source":"messages",
+      "selection_state":"conversation_id",
+      "send_action":"send-message",
+      "mark_seen_action":"mark-seen",
+      "conversation":{"id":"$.id","title":"$.title","preview":"$.preview","updated_at":"$.updated_at","unread":"$.unread"},
+      "message":{"id":"$.id","conversation_id":"$.conversation_id","body":"$.content","author":"$.author","role":"$.role","created_at":"$.created_at","status":"$.status"},
+      "subscription":{
+        "request":{"method":"GET","path":"/stream","query":{"conversation_id":"$state.conversation_id"}},
+        "cursor_query":"since",
+        "events":{
+          "message":{"operation":"upsert","source":"messages","value":"$.message","id":"$.message.id"},
+          "stream":{"operation":"set_activity","source":"messages","value":"$.text"},
+          "changed":{"operation":"invalidate","source":"conversations"}
+        }
+      }
+    }
+  }],
+  "actions":{
+    "send-message":{"type":"request","label":"Send","request":{"method":"POST","path":"/messages","encoding":"json","body":{"conversation_id":"$state.conversation_id","content":"$input.text"}},"result":"$.message"},
+    "mark-seen":{"type":"request","label":"Mark seen","request":{"method":"POST","path":"/seen","encoding":"json","body":{"conversation_id":"$state.conversation_id"}}}
+  }
+}`)
+	surface, err := ParseNativeSurface(document)
+	if err != nil {
+		t.Fatalf("ParseNativeSurface(chat): %v", err)
+	}
+	chat := surface.Sections[0].Chat
+	if chat == nil || surface.Sections[0].Component != "chat/v1" || chat.MessagesSource != "messages" {
+		t.Fatalf("unexpected chat component: %#v", surface.Sections[0])
+	}
+	if chat.Subscription == nil || chat.Subscription.Events["stream"].Operation != "set_activity" {
+		t.Fatalf("unexpected chat subscription: %#v", chat.Subscription)
+	}
+}
+
+func TestParseNativeSurfaceRejectsInvalidChatComponent(t *testing.T) {
+	document := strings.Replace(validNativeSurfaceJSON,
+		`"id": "files",
+    "kind": "collection",`,
+		`"id": "files",
+    "kind": "component",
+    "component": "chat/v1",`, 1)
+	_, err := ParseNativeSurface([]byte(document))
+	if err == nil || !strings.Contains(err.Error(), "chat configuration") {
+		t.Fatalf("error = %v", err)
+	}
+}
+
 func TestParseNativeSurfaceRejectsUnsafeOrInvalidDocuments(t *testing.T) {
 	tests := []struct{ name, from, to, want string }{
 		{"unknown field", `"icon": "folder",`, `"icon": "folder", "script": "alert(1)",`, "unknown field"},
