@@ -144,12 +144,12 @@ func TestParseNativeSurfaceChatComponent(t *testing.T) {
       "mark_seen_action":"mark-seen",
       "conversation":{"id":"$.id","title":"$.title","preview":"$.preview","updated_at":"$.updated_at","unread":"$.unread"},
       "message":{"id":"$.id","conversation_id":"$.conversation_id","body":"$.content","author":"$.author","role":"$.role","created_at":"$.created_at","status":"$.status"},
+      "live":{"id":"$.call_id","text":"$.text","done":"$.done","progress":{"value":"$.response_progress","phase":"$.phase"},"activity":{"value":"$.tool_activity","id":"$.id","status":"$.status"}},
       "subscription":{
         "request":{"method":"GET","path":"/stream","query":{"conversation_id":"$state.conversation_id"}},
         "cursor_query":"since",
         "events":{
           "message":{"operation":"upsert","source":"messages","value":"$.message","id":"$.message.id"},
-          "stream":{"operation":"set_activity","source":"messages","value":"$.text"},
           "changed":{"operation":"invalidate","source":"conversations"}
         }
       }
@@ -168,8 +168,8 @@ func TestParseNativeSurfaceChatComponent(t *testing.T) {
 	if chat == nil || surface.Sections[0].Component != "chat/v1" || chat.MessagesSource != "messages" {
 		t.Fatalf("unexpected chat component: %#v", surface.Sections[0])
 	}
-	if chat.Subscription == nil || chat.Subscription.Events["stream"].Operation != "set_activity" {
-		t.Fatalf("unexpected chat subscription: %#v", chat.Subscription)
+	if chat.Live == nil || chat.Live.Text != "$.text" || chat.Live.Progress == nil || chat.Live.Progress.Phase != "$.phase" || chat.Live.Activity == nil || chat.Live.Activity.Status != "$.status" {
+		t.Fatalf("unexpected live chat mapping: %#v", chat.Live)
 	}
 }
 

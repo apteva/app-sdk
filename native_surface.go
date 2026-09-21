@@ -162,6 +162,40 @@ type NativeSurfaceChatComponent struct {
 	Conversation        NativeSurfaceConversationMapping `json:"conversation"`
 	Message             NativeSurfaceMessageMapping      `json:"message"`
 	Subscription        *NativeSurfaceSubscription       `json:"subscription,omitempty"`
+	Live                *NativeSurfaceChatLiveMapping    `json:"live,omitempty"`
+}
+
+// NativeSurfaceChatLiveMapping maps ephemeral response, progress, and tool
+// activity frames without coupling native hosts to an app's payload shape.
+type NativeSurfaceChatLiveMapping struct {
+	ID       string                            `json:"id,omitempty"`
+	AgentID  string                            `json:"agent_id,omitempty"`
+	ThreadID string                            `json:"thread_id,omitempty"`
+	RunID    string                            `json:"run_id,omitempty"`
+	Text     string                            `json:"text,omitempty"`
+	Phase    string                            `json:"phase,omitempty"`
+	Done     string                            `json:"done,omitempty"`
+	Progress *NativeSurfaceChatProgressMapping `json:"progress,omitempty"`
+	Activity *NativeSurfaceChatActivityMapping `json:"activity,omitempty"`
+}
+
+type NativeSurfaceChatProgressMapping struct {
+	Value          string `json:"value,omitempty"`
+	Phase          string `json:"phase,omitempty"`
+	Revision       string `json:"revision,omitempty"`
+	ToolName       string `json:"tool_name,omitempty"`
+	CallID         string `json:"call_id,omitempty"`
+	AfterMessageID string `json:"after_message_id,omitempty"`
+}
+
+type NativeSurfaceChatActivityMapping struct {
+	Value      string `json:"value,omitempty"`
+	ID         string `json:"id,omitempty"`
+	Revision   string `json:"revision,omitempty"`
+	Name       string `json:"name,omitempty"`
+	Reason     string `json:"reason,omitempty"`
+	Status     string `json:"status,omitempty"`
+	DurationMS string `json:"duration_ms,omitempty"`
 }
 
 type NativeSurfaceConversationMapping struct {
@@ -870,6 +904,35 @@ func validateNativeChatComponent(chat NativeSurfaceChatComponent, prefix string,
 		}
 		if selector != "" && !validSelector(selector) {
 			return fmt.Errorf("%s chat %s has invalid selector %q", prefix, name, selector)
+		}
+	}
+	if chat.Live != nil {
+		liveSelectors := map[string]string{
+			"live.id": chat.Live.ID, "live.agent_id": chat.Live.AgentID,
+			"live.thread_id": chat.Live.ThreadID, "live.run_id": chat.Live.RunID,
+			"live.text": chat.Live.Text, "live.phase": chat.Live.Phase, "live.done": chat.Live.Done,
+		}
+		if chat.Live.Progress != nil {
+			liveSelectors["live.progress.value"] = chat.Live.Progress.Value
+			liveSelectors["live.progress.phase"] = chat.Live.Progress.Phase
+			liveSelectors["live.progress.revision"] = chat.Live.Progress.Revision
+			liveSelectors["live.progress.tool_name"] = chat.Live.Progress.ToolName
+			liveSelectors["live.progress.call_id"] = chat.Live.Progress.CallID
+			liveSelectors["live.progress.after_message_id"] = chat.Live.Progress.AfterMessageID
+		}
+		if chat.Live.Activity != nil {
+			liveSelectors["live.activity.value"] = chat.Live.Activity.Value
+			liveSelectors["live.activity.id"] = chat.Live.Activity.ID
+			liveSelectors["live.activity.revision"] = chat.Live.Activity.Revision
+			liveSelectors["live.activity.name"] = chat.Live.Activity.Name
+			liveSelectors["live.activity.reason"] = chat.Live.Activity.Reason
+			liveSelectors["live.activity.status"] = chat.Live.Activity.Status
+			liveSelectors["live.activity.duration_ms"] = chat.Live.Activity.DurationMS
+		}
+		for name, selector := range liveSelectors {
+			if selector != "" && !validSelector(selector) {
+				return fmt.Errorf("%s chat %s has invalid selector %q", prefix, name, selector)
+			}
 		}
 	}
 	if chat.Subscription == nil {
