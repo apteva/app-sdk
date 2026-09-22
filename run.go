@@ -311,6 +311,7 @@ func mountFrameworkRoutes(mux *http.ServeMux, app App, ctx *AppCtx) {
 	// need to.
 	mcp := newMCPHandler(app, ctx)
 	mux.Handle("/mcp", mcp)
+	mux.Handle(InternalAppBatchPath, newInternalAppBatchHandler(mcp))
 
 	// Event ingestion — the platform POSTs platform events here and
 	// the framework dispatches to the app's EventHandlers.
@@ -553,9 +554,10 @@ func readConfigEnv() Config {
 // --- minimal MCP handler ----------------------------------------------------
 
 type mcpHandler struct {
-	tools []Tool
-	app   App
-	ctx   *AppCtx
+	tools     []Tool
+	toolIndex map[string]int
+	app       App
+	ctx       *AppCtx
 }
 
 // HeaderBoundCallerInstallID is server-owned identity for calls traversing the
@@ -576,10 +578,72 @@ const HeaderAppCallResult = "X-Apteva-App-Call-Result"
 const HeaderAppResultFormat = "X-Apteva-App-Result-Format"
 const AppResultJSON = "json-v1"
 
-func newMCPHandler(app App, ctx *AppCtx) http.Handler {
+func newMCPHandler(app App, ctx *AppCtx) *mcpHandler {
 	tools := app.MCPTools()
 	sort.Slice(tools, func(i, j int) bool { return tools[i].Name < tools[j].Name })
-	return &mcpHandler{tools: tools, app: app, ctx: ctx}
+	toolIndex := make(map[string]int, len(tools))
+	for i := range tools {
+		toolIndex[tools[i].Name] = i
+	}
+	return &mcpHandler{tools: tools, toolIndex: toolIndex, app: app, ctx: ctx}
+}
+
+// callTool is the single tool execution path shared by external MCP and the
+// authenticated internal batch transport. Keeping exposure, grant, project,
+// context and encoding logic here prevents the fast path from weakening or
+// drifting away from ordinary app-to-app calls.
+func (h *mcpHandler) callTool(ctx context.Context, caller *Caller, boundApp bool, name string, args map[string]any) ([]byte, *mcpError) {
+	index, ok := h.toolIndex[name]
+	if !ok {
+		return nil, &mcpError{Code: -32601, Message: "tool not found: " + name}
+	}
+	matched := &h.tools[index]
+	if h.toolExposure(*matched) == ToolExposureAppOnly && !boundApp {
+		// Deliberately match the unknown-tool response. Agent and direct MCP
+		// clients must not be able to enumerate private app APIs.
+		return nil, &mcpError{Code: -32601, Message: "tool not found: " + name}
+	}
+	if args == nil {
+		args = map[string]any{}
+	}
+	if caller != nil {
+		spec := h.toolSpec(name)
+		if spec != nil && spec.Requires != "" {
+			resource, err := substituteResource(spec.ResourceFrom, args)
+			if err != nil {
+				return nil, &mcpError{Code: -32602, Message: err.Error()}
+			}
+			if !caller.Allows(spec.Requires, resource) {
+				return nil, &mcpError{Code: -32000, Message: (&ErrForbidden{Permission: spec.Requires, Resource: resource}).Error()}
+			}
+		}
+	}
+
+	callCtx := WithCaller(ctx, caller)
+	handlerCtx := h.ctx
+	if pid, ok := args["_project_id"].(string); ok && pid != "" {
+		handlerCtx = h.ctx.WithProject(pid)
+	}
+	var (
+		res any
+		err error
+	)
+	switch {
+	case matched.HandlerCtx != nil:
+		res, err = matched.HandlerCtx(callCtx, handlerCtx, args)
+	case matched.Handler != nil:
+		res, err = matched.Handler(handlerCtx, args)
+	default:
+		return nil, &mcpError{Code: -32603, Message: "tool " + name + ": no handler registered"}
+	}
+	if err != nil {
+		return nil, &mcpError{Code: -32000, Message: err.Error()}
+	}
+	body, err := marshalJSONNoHTMLEscape(res)
+	if err != nil {
+		return nil, &mcpError{Code: -32000, Message: "encode result: " + err.Error()}
+	}
+	return body, nil
 }
 
 type mcpRequest struct {
@@ -669,84 +733,9 @@ func (h *mcpHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	case "tools/call":
 		name, _ := req.Params["name"].(string)
 		args, _ := req.Params["arguments"].(map[string]any)
-		var matched *Tool
-		for i := range h.tools {
-			if h.tools[i].Name == name {
-				matched = &h.tools[i]
-				break
-			}
-		}
-		if matched == nil {
-			writeMCPErr(w, req.ID, -32601, "tool not found: "+name)
-			return
-		}
-		if h.toolExposure(*matched) == ToolExposureAppOnly && strings.TrimSpace(r.Header.Get(HeaderBoundCallerInstallID)) == "" {
-			// Deliberately use the same response as an unknown tool. Agent and
-			// direct MCP callers must not be able to enumerate private app APIs.
-			writeMCPErr(w, req.ID, -32601, "tool not found: "+name)
-			return
-		}
-
-		// Build a Caller from the X-Apteva-Caller-Agent header
-		// (legacy: X-Apteva-Caller-Instance).
-		// When the header is absent (back-compat: older platforms
-		// that don't forward it, dev curl, etc.) caller is nil and
-		// the gate degrades to "allow" — same as today.
-		caller := h.buildCaller(r)
-
-		// Manifest-declared per-tool gate. Only kicks in when both
-		// Requires is set on this tool's MCPToolSpec AND a Caller
-		// was supplied. Apps that don't declare requires keep
-		// pre-permissions behavior.
-		if caller != nil {
-			spec := h.toolSpec(name)
-			if spec != nil && spec.Requires != "" {
-				resource, err := substituteResource(spec.ResourceFrom, args)
-				if err != nil {
-					writeMCPErr(w, req.ID, -32602, err.Error())
-					return
-				}
-				if !caller.Allows(spec.Requires, resource) {
-					writeMCPErr(w, req.ID, -32000,
-						(&ErrForbidden{Permission: spec.Requires, Resource: resource}).Error())
-					return
-				}
-			}
-		}
-
-		callCtx := WithCaller(r.Context(), caller)
-		// Pin the AppCtx's CurrentProject to whatever the caller
-		// supplied as _project_id, so handlers reading
-		// app.CurrentProject() see the right project even on a global
-		// install. resolveProjectFromArgs in app code is still the
-		// final word — this is for the SDK's own threading.
-		handlerCtx := h.ctx
-		if pid, ok := args["_project_id"].(string); ok && pid != "" {
-			handlerCtx = h.ctx.WithProject(pid)
-		}
-		var (
-			res any
-			err error
-		)
-		switch {
-		case matched.HandlerCtx != nil:
-			res, err = matched.HandlerCtx(callCtx, handlerCtx, args)
-		case matched.Handler != nil:
-			res, err = matched.Handler(handlerCtx, args)
-		default:
-			writeMCPErr(w, req.ID, -32603, "tool "+name+": no handler registered")
-			return
-		}
-		if err != nil {
-			writeMCPErr(w, req.ID, -32000, err.Error())
-			return
-		}
-		// Encode as JSON so MCP clients can parse the result
-		// back into structured data. fmt.Sprint produces Go's
-		// map syntax which no client understands.
-		body, jerr := marshalJSONNoHTMLEscape(res)
-		if jerr != nil {
-			writeMCPErr(w, req.ID, -32000, "encode result: "+jerr.Error())
+		body, callErr := h.callTool(r.Context(), h.buildCaller(r), strings.TrimSpace(r.Header.Get(HeaderBoundCallerInstallID)) != "", name, args)
+		if callErr != nil {
+			writeMCPErr(w, req.ID, callErr.Code, callErr.Message)
 			return
 		}
 		if r.Header.Get(HeaderAppResultFormat) == AppResultJSON && r.Header.Get(HeaderBoundCallerInstallID) != "" {
@@ -779,6 +768,28 @@ func (h *mcpHandler) buildCaller(r *http.Request) *Caller {
 	}
 	subjectType := strings.TrimSpace(r.Header.Get("X-Apteva-Subject-Type"))
 	subjectID := strings.TrimSpace(r.Header.Get("X-Apteva-Subject-ID"))
+	subjectEmail := strings.TrimSpace(r.Header.Get("X-Apteva-Subject-Email"))
+	organizationID := strings.TrimSpace(r.Header.Get("X-Apteva-Organization-ID"))
+	organizationSlug := strings.TrimSpace(r.Header.Get("X-Apteva-Organization-Slug"))
+	projectID := strings.TrimSpace(r.Header.Get("X-Apteva-Project-ID"))
+	if r.Header.Get(HeaderTrustedPrincipal) != "" || r.Header.Get(HeaderTrustedPrincipalSignature) != "" {
+		// When the signed representation is present it is authoritative. Never
+		// fall back to unsigned subject headers if verification fails.
+		subjectType, subjectID, subjectEmail, organizationID, organizationSlug, projectID = "", "", "", "", "", ""
+		if principal, err := PrincipalFromRequest(r); err == nil && principal != nil {
+			subjectType = principal.SubjectType
+			subjectID = principal.SubjectID
+			subjectEmail = principal.SubjectEmail
+			organizationID = principal.OrganizationID
+			organizationSlug = principal.OrganizationSlug
+			projectID = principal.ProjectID
+			if subjectType == "" && principal.UserID > 0 {
+				subjectType = "user"
+				subjectID = strconv.FormatInt(principal.UserID, 10)
+				subjectEmail = principal.Email
+			}
+		}
+	}
 	boundAppID, _ := strconv.ParseInt(strings.TrimSpace(r.Header.Get(HeaderBoundCallerInstallID)), 10, 64)
 	boundAppName := strings.TrimSpace(r.Header.Get(HeaderBoundCallerAppName))
 	if raw == "" && (subjectType == "" || subjectID == "") && (boundAppID <= 0 || boundAppName == "") {
@@ -803,14 +814,14 @@ func (h *mcpHandler) buildCaller(r *http.Request) *Caller {
 		ThreadID:         strings.TrimSpace(r.Header.Get("X-Apteva-Caller-Thread")),
 		ThreadRole:       strings.TrimSpace(r.Header.Get("X-Apteva-Caller-Thread-Role")),
 		ToolCallID:       strings.TrimSpace(r.Header.Get("X-Apteva-Tool-Call-ID")),
-		ProjectID:        strings.TrimSpace(r.Header.Get("X-Apteva-Project-ID")),
+		ProjectID:        projectID,
 		AppInstallID:     boundAppID,
 		AppName:          boundAppName,
 		SubjectType:      subjectType,
 		SubjectID:        subjectID,
-		SubjectEmail:     strings.TrimSpace(r.Header.Get("X-Apteva-Subject-Email")),
-		OrganizationID:   strings.TrimSpace(r.Header.Get("X-Apteva-Organization-ID")),
-		OrganizationSlug: strings.TrimSpace(r.Header.Get("X-Apteva-Organization-Slug")),
+		SubjectEmail:     subjectEmail,
+		OrganizationID:   organizationID,
+		OrganizationSlug: organizationSlug,
 		Grants:           resp.Grants,
 		DefaultEffect:    resp.DefaultEffect,
 		Resources:        h.ctx.Manifest().Provides.Resources,

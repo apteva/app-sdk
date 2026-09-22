@@ -37,6 +37,9 @@ const (
 
 	UIComponentVisibilityAttached = "attached"
 	UIComponentVisibilityProject  = "project"
+
+	UIComponentDashboardScopeProject = "project"
+	UIComponentDashboardScopeGlobal  = "global"
 )
 
 // Manifest is the single source of truth for an app — identity,
@@ -420,6 +423,9 @@ type UIComponent struct {
 	// attached to the target agent. "project" makes the contribution available
 	// anywhere in the project. Home contributions are project-visible by nature.
 	Visibility string `yaml:"visibility,omitempty" json:"visibility,omitempty"`
+	// DashboardScopes declares which Home scopes can mount this same
+	// component. Empty means project-only for backwards compatibility.
+	DashboardScopes []string `yaml:"dashboard_scopes,omitempty" json:"dashboard_scopes,omitempty"`
 	// RefreshTopics narrows live refreshes to the declared app-bus topics. Empty
 	// preserves the legacy behaviour of refreshing after any event from the app.
 	RefreshTopics []string `yaml:"refresh_topics,omitempty" json:"refresh_topics,omitempty"`
@@ -1279,6 +1285,19 @@ func validateUIComponents(components []UIComponent) error {
 			if strings.TrimSpace(topic) == "" {
 				return fmt.Errorf("%s.refresh_topics contains an empty topic", prefix)
 			}
+		}
+		dashboardScopeSeen := map[string]bool{}
+		for _, scope := range component.DashboardScopes {
+			if scope != UIComponentDashboardScopeProject && scope != UIComponentDashboardScopeGlobal {
+				return fmt.Errorf("%s.dashboard_scopes contains unsupported scope %q", prefix, scope)
+			}
+			if dashboardScopeSeen[scope] {
+				return fmt.Errorf("%s.dashboard_scopes contains duplicate scope %q", prefix, scope)
+			}
+			dashboardScopeSeen[scope] = true
+		}
+		if len(dashboardScopeSeen) > 0 && !slotSeen[UIComponentSlotDashboardHome] {
+			return fmt.Errorf("%s.dashboard_scopes is only supported for dashboard.home components", prefix)
 		}
 		if component.Native != nil {
 			if !slotSeen[UIComponentSlotDashboardHome] {
