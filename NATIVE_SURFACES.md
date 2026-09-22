@@ -114,6 +114,11 @@ V1 page sections are:
 - `properties`: label/value metadata, usually in a detail destination.
 - `file_preview`: an app-relative file path plus optional share/delete actions.
 - `text`: native text using title and/or description.
+- `component`: a host-owned composable experience. V1 defines `chat/v1`, which
+  binds app-owned conversation and message sources, create/send/seen actions,
+  cursor pagination, and optional named subscription events. Durable events can
+  append, prepend, upsert, remove, or invalidate source data; ephemeral activity
+  uses `set_activity`. The declaring app chooses every route and JSON selector.
 
 Formatting is semantic: `file_size`, `relative_time`, `date_time`, `file_icon`,
 `tags`, `number`, and `currency`. Documents do not specify visual formatting.
