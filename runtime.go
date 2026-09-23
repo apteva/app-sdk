@@ -78,6 +78,32 @@ type RuntimeCreateRequest struct {
 	ConnectionBindings  []RuntimeConnectionBinding  `json:"connection_bindings,omitempty"`
 	Subscriptions       []RuntimeSubscription       `json:"subscriptions,omitempty"`
 	SnapshotID          string                      `json:"snapshot_id,omitempty"`
+	Clock               *RuntimeClockSpec           `json:"clock,omitempty"`
+}
+
+// RuntimeClockClient is an optional extension to RuntimeClient. Keeping it
+// separate lets older runtime stubs continue to implement RuntimeClient.
+type RuntimeClockClient interface {
+	GetRuntimeClock(runtimeID string) (*RuntimeClockState, error)
+	AdvanceRuntimeClock(runtimeID string, to time.Time) (*RuntimeClockState, error)
+}
+
+type RuntimeClockSpec struct {
+	Mode        string     `json:"mode"`
+	InitialTime *time.Time `json:"initial_time,omitempty"`
+}
+
+type RuntimeClockAdvance struct {
+	From   time.Time `json:"from"`
+	To     time.Time `json:"to"`
+	WallAt time.Time `json:"wall_at"`
+}
+
+type RuntimeClockState struct {
+	Mode         string                `json:"mode"`
+	InitialTime  time.Time             `json:"initial_time"`
+	CurrentTime  time.Time             `json:"current_time"`
+	Advancements []RuntimeClockAdvance `json:"advancements,omitempty"`
 }
 
 type RuntimeNetworkMode string
@@ -101,6 +127,7 @@ type RuntimeSummary struct {
 	MCPAttachments  []RuntimeMCPAttachment `json:"mcp_attachments"`
 	CreatedAt       time.Time              `json:"created_at"`
 	ExpiresAt       time.Time              `json:"expires_at"`
+	Clock           RuntimeClockState      `json:"clock"`
 }
 
 type RuntimeApp struct {
@@ -257,30 +284,35 @@ type RuntimeTelemetryEvent struct {
 }
 
 type RuntimeEdgeCall struct {
-	Method   string `json:"method"`
-	Host     string `json:"host"`
-	Path     string `json:"path"`
-	Status   int    `json:"status"`
-	Allowed  bool   `json:"allowed,omitempty"`
-	Mocked   bool   `json:"mocked,omitempty"`
-	Blocked  bool   `json:"blocked,omitempty"`
-	Recorded bool   `json:"recorded,omitempty"`
+	Method      string    `json:"method"`
+	Host        string    `json:"host"`
+	Path        string    `json:"path"`
+	Status      int       `json:"status"`
+	Allowed     bool      `json:"allowed,omitempty"`
+	Mocked      bool      `json:"mocked,omitempty"`
+	Blocked     bool      `json:"blocked,omitempty"`
+	Recorded    bool      `json:"recorded,omitempty"`
+	LogicalTime time.Time `json:"logical_time,omitempty"`
 }
 
 type RuntimeHTTPMock struct {
-	Host    string            `json:"host"`
-	Path    string            `json:"path"`
-	Method  string            `json:"method"`
-	Status  int               `json:"status,omitempty"`
-	Headers map[string]string `json:"headers,omitempty"`
-	Body    json.RawMessage   `json:"body,omitempty"`
+	Host        string            `json:"host"`
+	Path        string            `json:"path"`
+	Method      string            `json:"method"`
+	Status      int               `json:"status,omitempty"`
+	Headers     map[string]string `json:"headers,omitempty"`
+	Body        json.RawMessage   `json:"body,omitempty"`
+	AvailableAt *time.Time        `json:"available_at,omitempty"`
+	ExpiresAt   *time.Time        `json:"expires_at,omitempty"`
 }
 
 type RuntimeIntegrationMock struct {
-	App    string `json:"app"`
-	Tool   string `json:"tool"`
-	Status int    `json:"status,omitempty"`
-	Data   any    `json:"data,omitempty"`
+	App         string     `json:"app"`
+	Tool        string     `json:"tool"`
+	Status      int        `json:"status,omitempty"`
+	Data        any        `json:"data,omitempty"`
+	AvailableAt *time.Time `json:"available_at,omitempty"`
+	ExpiresAt   *time.Time `json:"expires_at,omitempty"`
 }
 
 // RuntimeIntegrationBinding creates a runtime-scoped fake connection and
@@ -332,6 +364,7 @@ type RuntimeSnapshot struct {
 	HasAgent    bool                `json:"has_agent"`
 	HasCassette bool                `json:"has_cassette"`
 	CreatedAt   time.Time           `json:"created_at"`
+	Clock       *RuntimeClockState  `json:"clock,omitempty"`
 }
 
 type RuntimeCatalogManagedMCPServer struct {
@@ -677,6 +710,56 @@ func (c *httpPlatformClient) UpdateAgentDirective(agentID int64, req AgentDirect
 
 func runtimePath(id string) string {
 	return "/api/apps/callback/runtimes/" + url.PathEscape(strings.TrimSpace(id))
+}
+
+func (c *httpPlatformClient) GetRuntimeClock(id string) (*RuntimeClockState, error) {
+	var out RuntimeClockState
+	if err := c.get(runtimePath(id)+"/clock", &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+func (c *httpPlatformClient) AdvanceRuntimeClock(id string, to time.Time) (*RuntimeClockState, error) {
+	var out RuntimeClockState
+	if err := c.post(runtimePath(id)+"/clock", map[string]time.Time{"to": to}, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+func (p *projectScopedClient) GetRuntimeClock(id string) (*RuntimeClockState, error) {
+	client, ok := p.inner.(RuntimeClockClient)
+	if !ok {
+		return nil, fmt.Errorf("runtime clock API unavailable")
+	}
+	return client.GetRuntimeClock(id)
+}
+
+func (p *projectScopedClient) AdvanceRuntimeClock(id string, to time.Time) (*RuntimeClockState, error) {
+	client, ok := p.inner.(RuntimeClockClient)
+	if !ok {
+		return nil, fmt.Errorf("runtime clock API unavailable")
+	}
+	return client.AdvanceRuntimeClock(id, to)
+}
+
+func (c *httpPlatformClient) EnvironmentTime() (time.Time, error) {
+	var out struct {
+		CurrentTime time.Time `json:"current_time"`
+	}
+	if err := c.get("/api/apps/callback/environment-time", &out); err != nil {
+		return time.Time{}, err
+	}
+	return out.CurrentTime, nil
+}
+
+func (p *projectScopedClient) EnvironmentTime() (time.Time, error) {
+	client, ok := p.inner.(interface{ EnvironmentTime() (time.Time, error) })
+	if !ok {
+		return time.Time{}, fmt.Errorf("environment time unavailable")
+	}
+	return client.EnvironmentTime()
 }
 
 func runtimeAgentPath(runtimeID, agent string) string {
