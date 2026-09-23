@@ -10,6 +10,8 @@ package sdk
 // inside an Environment — when the platform sets APTEVA_FAKE_TIME / APTEVA_SEED —
 // while behaving exactly as before in production (env unset → real time,
 // crypto-random ids).
+// Manual-clock runtimes read their changing time from the server on each Now
+// call; APTEVA_FAKE_TIME remains a startup fallback if that read fails.
 //
 // Adoption is incremental: an app that keeps calling time.Now()/rand
 // directly still runs fine in an Environment, it's just nondeterministic in those
@@ -49,10 +51,16 @@ func detSeed() (int64, bool) {
 	return 0, false
 }
 
-// Now returns the current time, or a frozen time when APTEVA_FAKE_TIME is
-// set (RFC3339, or unix seconds). Use this instead of time.Now() anywhere
+// Now returns the current time, including server-owned manual-clock time, or
+// a frozen time when APTEVA_FAKE_TIME is set (RFC3339, or unix seconds).
+// Use this instead of time.Now() anywhere
 // the value ends up in app output you'd want to assert on.
 func (c *AppCtx) Now() time.Time {
+	if os.Getenv("APTEVA_MANUAL_CLOCK") == "1" {
+		if t, err := c.EnvironmentTime(); err == nil {
+			return t
+		}
+	}
 	if v := os.Getenv("APTEVA_FAKE_TIME"); v != "" {
 		if t, err := time.Parse(time.RFC3339, v); err == nil {
 			return t
@@ -62,6 +70,19 @@ func (c *AppCtx) Now() time.Time {
 		}
 	}
 	return time.Now()
+}
+
+// EnvironmentTime reads the server-owned clock for a cloned app. It returns
+// wall time outside an Environment. Unlike Now, errors are exposed to callers.
+func (c *AppCtx) EnvironmentTime() (time.Time, error) {
+	if os.Getenv("APTEVA_ENVIRONMENT_ID") == "" {
+		return time.Now().UTC(), nil
+	}
+	client, ok := c.platform.(interface{ EnvironmentTime() (time.Time, error) })
+	if !ok {
+		return time.Time{}, fmt.Errorf("environment time unavailable")
+	}
+	return client.EnvironmentTime()
 }
 
 // NewID returns a unique id — deterministic + monotonic when APTEVA_SEED is
