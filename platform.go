@@ -383,12 +383,16 @@ func (c *httpPlatformClient) WhoAmI() (*InstallIdentity, error) {
 }
 
 func (c *httpPlatformClient) ExecuteIntegrationTool(connID int64, tool string, input map[string]any) (*ExecuteResult, error) {
+	return c.ExecuteIntegrationToolContext(context.Background(), connID, tool, input)
+}
+
+func (c *httpPlatformClient) ExecuteIntegrationToolContext(ctx context.Context, connID int64, tool string, input map[string]any) (*ExecuteResult, error) {
 	if input == nil {
 		input = map[string]any{}
 	}
 	body := map[string]any{"tool": tool, "input": input}
 	var out ExecuteResult
-	if err := c.postWith(c.slowClient, "/api/apps/callback/integrations/"+strconv.FormatInt(connID, 10)+"/execute", body, &out); err != nil {
+	if err := c.postWithContext(ctx, c.slowClient, "/api/apps/callback/integrations/"+strconv.FormatInt(connID, 10)+"/execute", body, &out); err != nil {
 		return nil, err
 	}
 	return &out, nil
@@ -1210,6 +1214,9 @@ func (p *projectScopedClient) WhoAmI() (*InstallIdentity, error) {
 }
 func (p *projectScopedClient) ExecuteIntegrationTool(connID int64, tool string, input map[string]any) (*ExecuteResult, error) {
 	return p.inner.ExecuteIntegrationTool(connID, tool, input)
+}
+func (p *projectScopedClient) ExecuteIntegrationToolContext(ctx context.Context, connID int64, tool string, input map[string]any) (*ExecuteResult, error) {
+	return ExecuteIntegrationToolContext(ctx, p.inner, connID, tool, input)
 }
 func (p *projectScopedClient) GetIntegrationURLProperty(connID int64, property string) (*IntegrationURLPropertyStatus, error) {
 	return GetIntegrationURLProperty(p.inner, connID, property)
