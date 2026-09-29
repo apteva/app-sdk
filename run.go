@@ -186,17 +186,17 @@ func appOutboundToken() string {
 	return os.Getenv("APTEVA_APP_TOKEN")
 }
 
-// publicRoutePaths collects the patterns of every NoAuth route that
+// publicRoutes collects the method and pattern of every NoAuth route that
 // HTTPRoutes() declared. withTokenAuth consults this slice on every
 // request to decide whether to skip the bearer-token check. Populated
 // once per process at mountAppRoutes time; reads after that are
 // lock-free.
-var publicRoutePaths []string
+var publicRoutes []RouteSpec
 
 func mountAppRoutes(mux *http.ServeMux, app App, ctx *AppCtx) {
 	for _, r := range app.HTTPRoutes() {
 		if r.NoAuth {
-			publicRoutePaths = append(publicRoutePaths, r.Pattern)
+			publicRoutes = append(publicRoutes, RouteSpec{Method: r.Method, Prefix: r.Pattern, NoAuth: true})
 		}
 		method := r.Method
 		pattern := r.Pattern
@@ -217,12 +217,20 @@ func mountAppRoutes(mux *http.ServeMux, app App, ctx *AppCtx) {
 	}
 }
 
-// matchesPublicRoute returns true when the request path satisfies any
-// NoAuth route pattern. Literal exact/subtree routes retain their historical
+// matchesPublicRoute returns true when the request method and path satisfy a
+// NoAuth route. Literal exact/subtree routes retain their historical
 // behavior, while patterns containing wildcards use http.ServeMux itself so
 // routes such as /v1/devices/{id}/test match exactly as they do at dispatch.
-func matchesPublicRoute(path string) bool {
-	return matchesPublicRoutePatterns(path, publicRoutePaths)
+func matchesPublicRoute(path, method string) bool {
+	for _, route := range publicRoutes {
+		if route.Method != "" && !strings.EqualFold(route.Method, method) {
+			continue
+		}
+		if matchesPublicRoutePatterns(path, []string{route.Prefix}) {
+			return true
+		}
+	}
+	return false
 }
 
 func matchesPublicRoutePatterns(path string, patterns []string) bool {
@@ -515,8 +523,8 @@ func withTokenAuth(h http.Handler, declaredRoutes ...RouteSpec) http.Handler {
 		// Per-route NoAuth carve-out. Apps mark UPnP/DLNA wire
 		// endpoints (or anything else where the LAN itself is the
 		// auth boundary) by setting Route.NoAuth=true; mountAppRoutes
-		// collected those paths into publicRoutePaths.
-		if matchesPublicRoute(r.URL.Path) {
+		// collected those routes into publicRoutes.
+		if matchesPublicRoute(r.URL.Path, r.Method) {
 			h.ServeHTTP(w, r)
 			return
 		}

@@ -47,9 +47,9 @@ func TestManifestPublicFrontendRoutesWithUserBearer(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	previous := publicRoutePaths
-	publicRoutePaths = nil
-	t.Cleanup(func() { publicRoutePaths = previous })
+	previous := publicRoutes
+	publicRoutes = nil
+	t.Cleanup(func() { publicRoutes = previous })
 	app := &frontendRouteTestApp{}
 	mux := http.NewServeMux()
 	mountAppRoutes(mux, app, &AppCtx{})
@@ -99,9 +99,9 @@ func TestManifestPublicFrontendRoutesWithUserBearer(t *testing.T) {
 
 func TestManifestPublicRoutesRespectMethodAndHandlerScope(t *testing.T) {
 	t.Setenv("APTEVA_APP_TOKEN", "installation-secret")
-	previous := publicRoutePaths
-	publicRoutePaths = nil
-	t.Cleanup(func() { publicRoutePaths = previous })
+	previous := publicRoutes
+	publicRoutes = nil
+	t.Cleanup(func() { publicRoutes = previous })
 	next := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(204) })
 	handler := withTokenAuth(next,
 		RouteSpec{Prefix: "/ui/{file}", Method: "GET", NoAuth: true},
@@ -130,19 +130,51 @@ func TestManifestPublicRoutesRespectMethodAndHandlerScope(t *testing.T) {
 	}
 }
 
-func TestMatchesPublicRouteServeMuxParameters(t *testing.T) {
-	previous := publicRoutePaths
-	publicRoutePaths = []string{
-		"/v1/deliveries",
-		"/v1/devices/{id}/test",
+type methodPublicRouteTestApp struct{ metaTestApp }
+
+func (*methodPublicRouteTestApp) HTTPRoutes() []Route {
+	return []Route{{Method: http.MethodGet, Pattern: "/accounts/oauth_done", NoAuth: true, Handler: func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusNoContent)
+	}}}
+}
+
+func TestSDKPublicRouteRespectsMethod(t *testing.T) {
+	t.Setenv("APTEVA_APP_TOKEN", "installation-secret")
+	previous := publicRoutes
+	publicRoutes = nil
+	t.Cleanup(func() { publicRoutes = previous })
+	mux := http.NewServeMux()
+	mountAppRoutes(mux, &methodPublicRouteTestApp{}, &AppCtx{})
+	handler := withTokenAuth(mux)
+	for _, tc := range []struct {
+		method, path string
+		status       int
+	}{
+		{http.MethodGet, "/accounts/oauth_done", http.StatusNoContent},
+		{http.MethodPost, "/accounts/oauth_done", http.StatusUnauthorized},
+		{http.MethodGet, "/accounts/start", http.StatusUnauthorized},
+	} {
+		rec := httptest.NewRecorder()
+		handler.ServeHTTP(rec, httptest.NewRequest(tc.method, tc.path, nil))
+		if rec.Code != tc.status {
+			t.Errorf("%s %s: status=%d want=%d", tc.method, tc.path, rec.Code, tc.status)
+		}
 	}
-	t.Cleanup(func() { publicRoutePaths = previous })
+}
+
+func TestMatchesPublicRouteServeMuxParameters(t *testing.T) {
+	previous := publicRoutes
+	publicRoutes = []RouteSpec{
+		{Prefix: "/v1/deliveries"},
+		{Prefix: "/v1/devices/{id}/test"},
+	}
+	t.Cleanup(func() { publicRoutes = previous })
 
 	for _, path := range []string{
 		"/v1/deliveries",
 		"/v1/devices/device-123/test",
 	} {
-		if !matchesPublicRoute(path) {
+		if !matchesPublicRoute(path, http.MethodPost) {
 			t.Errorf("public route %q did not match", path)
 		}
 	}
@@ -151,7 +183,7 @@ func TestMatchesPublicRouteServeMuxParameters(t *testing.T) {
 		"/v1/devices/device-123",
 		"/v1/devices/device-123/test/extra",
 	} {
-		if matchesPublicRoute(path) {
+		if matchesPublicRoute(path, http.MethodPost) {
 			t.Errorf("private route %q matched a public pattern", path)
 		}
 	}
@@ -159,12 +191,12 @@ func TestMatchesPublicRouteServeMuxParameters(t *testing.T) {
 
 func TestWithTokenAuthAllowsParameterizedNoAuthRoute(t *testing.T) {
 	t.Setenv("APTEVA_APP_TOKEN", "install-token")
-	previous := publicRoutePaths
-	publicRoutePaths = []string{
-		"/v1/deliveries",
-		"/v1/devices/{id}/test",
+	previous := publicRoutes
+	publicRoutes = []RouteSpec{
+		{Prefix: "/v1/deliveries"},
+		{Prefix: "/v1/devices/{id}/test"},
 	}
-	t.Cleanup(func() { publicRoutePaths = previous })
+	t.Cleanup(func() { publicRoutes = previous })
 
 	reached := false
 	handler := withTokenAuth(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -186,9 +218,9 @@ func TestWithTokenAuthAllowsParameterizedNoAuthRoute(t *testing.T) {
 
 func TestSignatureQueryDoesNotBypassProtectedRoute(t *testing.T) {
 	t.Setenv("APTEVA_APP_TOKEN", "secret")
-	prior := publicRoutePaths
-	publicRoutePaths = []string{"/signed/"}
-	defer func() { publicRoutePaths = prior }()
+	prior := publicRoutes
+	publicRoutes = []RouteSpec{{Prefix: "/signed/"}}
+	defer func() { publicRoutes = prior }()
 	handler := withTokenAuth(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(204) }))
 	for _, test := range []struct {
 		path, token string
