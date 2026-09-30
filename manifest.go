@@ -426,6 +426,9 @@ type UIComponent struct {
 	// DashboardScopes declares which Home scopes can mount this same
 	// component. Empty means project-only for backwards compatibility.
 	DashboardScopes []string `yaml:"dashboard_scopes,omitempty" json:"dashboard_scopes,omitempty"`
+	// RecommendedViews suggests agent-page presets for this widget. It does
+	// not restrict availability or confer permissions. Empty supports all views.
+	RecommendedViews []string `yaml:"recommended_views,omitempty" json:"recommended_views,omitempty"`
 	// RefreshTopics narrows live refreshes to the declared app-bus topics. Empty
 	// preserves the legacy behaviour of refreshing after any event from the app.
 	RefreshTopics []string `yaml:"refresh_topics,omitempty" json:"refresh_topics,omitempty"`
@@ -1262,6 +1265,16 @@ func validateUIComponents(components []UIComponent) error {
 		case "", UIComponentVisibilityAttached, UIComponentVisibilityProject:
 		default:
 			return fmt.Errorf("%s.visibility %q unsupported (attached|project)", prefix, component.Visibility)
+		}
+		viewSeen := map[string]bool{}
+		for _, view := range component.RecommendedViews {
+			if view != "personal" && view != "business" && view != "developer" {
+				return fmt.Errorf("%s.recommended_views contains unsupported view %q", prefix, view)
+			}
+			if viewSeen[view] {
+				return fmt.Errorf("%s.recommended_views contains duplicate view %q", prefix, view)
+			}
+			viewSeen[view] = true
 		}
 		sizeSeen := map[string]bool{}
 		for _, size := range component.SupportedSizes {
