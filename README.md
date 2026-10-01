@@ -74,6 +74,15 @@ Set the relevant block in `apteva.yaml` (see `manifest.go` for the full schema):
 Anything you don't declare — leave the field out or return `nil` from
 the matching `App` method.
 
+### MCP tool annotations
+
+Set `Tool.Annotations` to standard MCP hints, for example
+`map[string]any{"readOnlyHint": true, "destructiveHint": false}` for a
+query that does not change state. The SDK emits these under `annotations` in
+`tools/list`, separate from the `_meta` extension fields. Unannotated tools keep
+their existing response shape. These hints describe behavior, not execution
+permissions; only annotate a tool as read-only if its handler has no writes.
+
 ### Native mobile surfaces
 
 An app advertises each native surface in `apteva.yaml`:

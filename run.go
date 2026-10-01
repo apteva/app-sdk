@@ -730,6 +730,9 @@ func (h *mcpHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			entry := map[string]any{
 				"name": t.Name, "description": t.Description, "inputSchema": t.InputSchema,
 			}
+			if len(t.Annotations) > 0 {
+				entry["annotations"] = t.Annotations
+			}
 			meta := h.toolMeta(t)
 			if len(meta) > 0 {
 				entry["_meta"] = meta
