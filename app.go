@@ -69,6 +69,10 @@ type Tool struct {
 	Description string
 	InputSchema map[string]any // JSON schema
 	Meta        map[string]any // MCP _meta extension fields
+	// Annotations are standard MCP tool hints (for example readOnlyHint and
+	// destructiveHint), emitted at tools/list's top level, separate from _meta.
+	// They describe behavior; they do not grant permission to execute the tool.
+	Annotations map[string]any
 	// Exposure controls who may discover and invoke this tool. Empty and
 	// ToolExposurePublic preserve the historical behavior: the tool is listed
 	// to agents and may also be called by a bound app. ToolExposureAppOnly keeps
