@@ -295,6 +295,7 @@ type Provides struct {
 // cares about the topic string). The dashboard uses these for the
 // subscription form's event picker and for tooltip descriptions.
 type EventDecl struct {
+	Notification *NotificationSpec `yaml:"notification,omitempty" json:"notification,omitempty"`
 	// Name is the topic string, dot-separated by convention
 	// ("media.indexed", "account.created"). Must match exactly what
 	// ctx.Emit("…", …) passes at runtime.
@@ -1099,6 +1100,9 @@ func ParseManifest(data []byte) (*Manifest, error) {
 // independent of the deployment context. Dynamic checks (image exists,
 // permission scope agrees with what the user consented) live elsewhere.
 func ValidateManifest(m *Manifest) error {
+	if err := validateNotificationDeclarations(m.Provides.Publishes); err != nil {
+		return err
+	}
 	if m.Runtime.StartupTimeoutSeconds < 0 || m.Runtime.StartupTimeoutSeconds > 3600 {
 		return fmt.Errorf("runtime.startup_timeout_seconds must be between 0 and 3600")
 	}
