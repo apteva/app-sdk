@@ -69,6 +69,7 @@ type Manifest struct {
 	Runtime      Runtime       `yaml:"runtime" json:"runtime"`
 	DB           *DBConfig     `yaml:"db,omitempty" json:"db,omitempty"`
 	ConfigSchema []ConfigField `yaml:"config_schema" json:"config_schema"`
+	Setup        *SetupSpec    `yaml:"setup,omitempty" json:"setup,omitempty"`
 
 	// Imports is an app-owned declarative catalog of external sources this
 	// app knows how to import into itself. The platform may interpret this
@@ -837,6 +838,8 @@ type ConfigField struct {
 	// surface a "missing dep" error rather than a silent dropdown
 	// fail at config time.
 	App string `yaml:"app,omitempty" json:"app,omitempty"`
+	// AppRole selects the exact bound app installation for discovery.
+	AppRole string `yaml:"app_role,omitempty" json:"app_role,omitempty"`
 
 	// Discovery — for type=select_from_integration AND
 	// type=select_from_app: how to fetch the list of options. The
@@ -914,6 +917,7 @@ const (
 	PermInstancesWrite     Permission = "platform.instances.write"
 	// PermThreadsWrite lets an app target events at, create, and stop opaque
 	// threads belonging to agents in the app install's project scope.
+	PermFileReferences  Permission = "platform.files.references"
 	PermThreadsWrite    Permission = "platform.threads.write"
 	PermMCPAttach       Permission = "platform.mcp.attach"
 	PermChannelsSend    Permission = "platform.channels.send"
@@ -1024,7 +1028,7 @@ func AllPermissions() []Permission {
 	return []Permission{
 		PermDBWriteApp, PermNetEgress,
 		PermConnectionsRead, PermConnectionsWrite, PermConnectionsExecute,
-		PermInstancesRead, PermInstancesWrite, PermThreadsWrite,
+		PermInstancesRead, PermInstancesWrite, PermThreadsWrite, PermFileReferences,
 		PermMCPAttach, PermChannelsSend, PermAppsCall, PermEventsSubscribe,
 		PermFSReadShared, PermFSWriteShared,
 		PermOAuthStart, PermConnectionsManage, PermConnectionsManageOwnedCredentials,
@@ -1050,6 +1054,8 @@ func AllPermissions() []Permission {
 // callers remain forward-compatible with newer SDK taxonomies.
 func PermissionDescription(permission Permission) string {
 	switch permission {
+	case PermFileReferences:
+		return "Register immutable app attachments and grant their use to this app’s agent threads."
 	case PermPlatformBackupRead:
 		return "Read and stream a full backup of the platform and installed app databases."
 	case PermPlatformBackupRestore:
@@ -1100,6 +1106,9 @@ func ParseManifest(data []byte) (*Manifest, error) {
 // independent of the deployment context. Dynamic checks (image exists,
 // permission scope agrees with what the user consented) live elsewhere.
 func ValidateManifest(m *Manifest) error {
+	if err := validateSetup(m); err != nil {
+		return err
+	}
 	if err := validateNotificationDeclarations(m.Provides.Publishes); err != nil {
 		return err
 	}

@@ -320,6 +320,9 @@ func mountFrameworkRoutes(mux *http.ServeMux, app App, ctx *AppCtx) {
 	mcp := newMCPHandler(app, ctx)
 	mux.Handle("/mcp", mcp)
 	mux.Handle(InternalAppBatchPath, newInternalAppBatchHandler(mcp))
+	if source, ok := app.(FileReferenceSource); ok {
+		mux.Handle(FileReferenceReadPath, fileReferenceReadHandler(source))
+	}
 
 	// Event ingestion — the platform POSTs platform events here and
 	// the framework dispatches to the app's EventHandlers.

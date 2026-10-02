@@ -10,17 +10,20 @@ import (
 // Recipient IDs must be platform user IDs, never app-local account IDs. The
 // platform intersects this audience with current installation/project access.
 type NotificationSpec struct {
-	ID              string               `yaml:"id" json:"id"`
-	Name            string               `yaml:"name" json:"name"`
-	Description     string               `yaml:"description,omitempty" json:"description,omitempty"`
-	Audience        string               `yaml:"audience" json:"audience"`
-	RecipientsField string               `yaml:"recipients_field,omitempty" json:"recipients_field,omitempty"`
-	Title           string               `yaml:"title" json:"title"`
-	Body            string               `yaml:"body,omitempty" json:"body,omitempty"`
-	Link            string               `yaml:"link,omitempty" json:"link,omitempty"`
-	GroupBy         string               `yaml:"group_by,omitempty" json:"group_by,omitempty"`
-	Defaults        NotificationChannels `yaml:"defaults,omitempty" json:"defaults"`
-	Filters         []NotificationFilter `yaml:"filters,omitempty" json:"filters,omitempty"`
+	ID          string `yaml:"id" json:"id"`
+	Name        string `yaml:"name" json:"name"`
+	Description string `yaml:"description,omitempty" json:"description,omitempty"`
+	// Audience is "project" (all authorized subscribers) or "recipients".
+	Audience        string `yaml:"audience" json:"audience"`
+	RecipientsField string `yaml:"recipients_field,omitempty" json:"recipients_field,omitempty"`
+	Title           string `yaml:"title" json:"title"`
+	Body            string `yaml:"body,omitempty" json:"body,omitempty"`
+	// Link is a query string for this app's dashboard page, e.g. ?task={task.id}.
+	// It cannot navigate to another app or external origin. Values are URL escaped.
+	Link     string               `yaml:"link,omitempty" json:"link,omitempty"`
+	GroupBy  string               `yaml:"group_by,omitempty" json:"group_by,omitempty"`
+	Defaults NotificationChannels `yaml:"defaults,omitempty" json:"defaults"`
+	Filters  []NotificationFilter `yaml:"filters,omitempty" json:"filters,omitempty"`
 }
 
 type NotificationChannels struct {
@@ -31,11 +34,12 @@ type NotificationChannels struct {
 }
 
 type NotificationFilter struct {
-	Field   string                     `yaml:"field" json:"field"`
-	Label   string                     `yaml:"label" json:"label"`
+	Field string `yaml:"field" json:"field"`
+	Label string `yaml:"label" json:"label"`
+	// "$me" compares a payload field to the authenticated platform user ID.
+	// An empty Options list permits a resource ID supplied by the user/app UI.
 	Options []NotificationFilterOption `yaml:"options,omitempty" json:"options,omitempty"`
 }
-
 type NotificationFilterOption struct {
 	Value string `yaml:"value" json:"value"`
 	Label string `yaml:"label" json:"label"`

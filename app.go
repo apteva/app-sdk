@@ -1322,6 +1322,9 @@ type BrowserOriginPolicyClient interface {
 // platform-level fact apps need to read at runtime — keep it small;
 // per-app config_schema still owns per-app knobs.
 type PlatformInfo struct {
+	// FileReferences advertises the optional durable attachment contract.
+	FileReferences        string          `json:"file_references,omitempty"`
+	FileReferenceDispatch map[string]bool `json:"file_reference_dispatch,omitempty"`
 	// PublicURL is the apteva-server's externally-reachable base URL.
 	// Used by sidecars to construct webhooks, signed URLs handed to
 	// third parties, etc. May be "" on local-only installs that

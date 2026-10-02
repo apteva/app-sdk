@@ -229,3 +229,19 @@ platform database restore guarantee. Failed activation restores only the prior
 process/routing. Automatic activation of `requires_restore` apps is rejected:
 those apps need an offline migration and a verified backup/restore procedure.
 Do not restore a database underneath a running writer.
+
+## User notifications
+
+Apps can opt existing published events into dashboard, desktop and mobile notifications. See [NOTIFICATIONS.md](NOTIFICATIONS.md) for declarations, defaults, audiences, resource follows and delivery semantics.
+
+### Guided setup
+
+Apps can declare feature-based install and edit guidance, including nested
+app dependencies and app-owned readiness checks. See [SETUP.md](SETUP.md) for
+the manifest contract and CRM/Messaging adoption examples.
+
+### Unified file handles
+
+See [FILE_REFERENCES.md](FILE_REFERENCES.md) for server-stored blobs and app-owned attachments using one handle,
+thread grants, internal resolution into binary tool arguments, integration calls,
+and capability-based migration from older servers.
