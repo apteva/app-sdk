@@ -174,6 +174,15 @@ The app still handles that envelope in its existing tool implementation. Other
 arguments are not interpreted as file references. The destination must be
 attached to the calling agent and accessible in the thread's project.
 
+For presentation-oriented app inputs that should retain a handle instead of
+receiving bytes, use `sdk.FileReferencePassthroughSchema`. The server checks
+the same project, installation, agent, thread and grant authorization, then
+passes an authoritative `_file` descriptor to the app. This is useful when an
+app stores a generated image reference in durable history and resolves it only
+for an authorized viewer. Apps can use the optional `sdk.FileReferenceReader`
+extension for that presentation read; it returns bytes only after the app's
+trusted scope and the current grant are checked.
+
 Agent MCP configurations gain a signed dispatch identity when started or
 reconciled by the updated server. Restart/reconcile older running agents before
 using the new contract. Existing tool calls and core-local `blobref://` handles continue to work during
