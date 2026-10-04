@@ -1318,6 +1318,10 @@ type BrowserOriginPolicyClient interface {
 // platform-level fact apps need to read at runtime — keep it small;
 // per-app config_schema still owns per-app knobs.
 type PlatformInfo struct {
+	// AsyncResultNotifications advertises platform-managed progress and
+	// terminal notifications for tools that return before their work finishes.
+	// It is nil on older servers that do not support this capability.
+	AsyncResultNotifications *AsyncResultCapabilities `json:"async_result_notifications,omitempty"`
 	// PublicURL is the apteva-server's externally-reachable base URL.
 	// Used by sidecars to construct webhooks, signed URLs handed to
 	// third parties, etc. May be "" on local-only installs that

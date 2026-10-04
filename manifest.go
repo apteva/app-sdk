@@ -545,11 +545,12 @@ type AsyncResultSpec struct {
 // AsyncNotifySpec tells the platform which app events should wake the
 // caller when the async result changes state.
 type AsyncNotifySpec struct {
-	Target       string            `yaml:"target,omitempty" json:"target,omitempty"` // caller
-	Mode         string            `yaml:"mode,omitempty" json:"mode,omitempty"`     // once
-	Events       []string          `yaml:"events,omitempty" json:"events,omitempty"`
-	Match        map[string]string `yaml:"match,omitempty" json:"match,omitempty"`
-	ExpiresAfter string            `yaml:"expires_after,omitempty" json:"expires_after,omitempty"`
+	TerminalEvents []string          `yaml:"terminal_events,omitempty" json:"terminal_events,omitempty"`
+	Target         string            `yaml:"target,omitempty" json:"target,omitempty"` // caller
+	Mode           string            `yaml:"mode,omitempty" json:"mode,omitempty"`     // once
+	Events         []string          `yaml:"events,omitempty" json:"events,omitempty"`
+	Match          map[string]string `yaml:"match,omitempty" json:"match,omitempty"`
+	ExpiresAfter   string            `yaml:"expires_after,omitempty" json:"expires_after,omitempty"`
 }
 
 // PromptFragment files concatenate into instance directives at boot
