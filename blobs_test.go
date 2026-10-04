@@ -48,3 +48,29 @@ func TestBlobClientUploadAndCommonHandle(t *testing.T) {
 		}
 	}
 }
+
+func TestFileReferenceReaderUsesScopedReadTransport(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/apps/callback/file-references/read" {
+			t.Fatalf("unexpected read transport: %s", r.URL.Path)
+		}
+		var req FileReferenceReadRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			t.Fatal(err)
+		}
+		if req.Ref != "blobref://generated" || req.Scope.ProjectID != "project" || req.Scope.AgentID != 7 || req.Scope.ThreadID != "thread" {
+			t.Fatalf("unexpected read scope: %#v", req)
+		}
+		_ = json.NewEncoder(w).Encode(FileReferenceReadResponse{FileReference: FileReference{File: true, Ref: req.Ref, Filename: "generated.png", MIMEType: "image/png", Size: 3}, Data: []byte("png")})
+	}))
+	defer server.Close()
+	client := &httpPlatformClient{baseURL: server.URL, token: "app-token", client: server.Client(), slowClient: server.Client()}
+	scoped := &projectScopedClient{inner: client, projectID: "project"}
+	got, err := scoped.ReadFileReference(context.Background(), FileReferenceReadRequest{Ref: "blobref://generated", Scope: FileReferenceScope{AgentID: 7, ThreadID: "thread"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got == nil || string(got.Data) != "png" || got.MIMEType != "image/png" {
+		t.Fatalf("unexpected read result: %#v", got)
+	}
+}

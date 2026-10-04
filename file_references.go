@@ -17,13 +17,14 @@ import (
 )
 
 const (
-	FileReferencesVersion           = "apteva-file-references/v1"
-	FileReferencePrefix             = "blobref://"
-	LegacyFileReferencePrefix       = "apteva-file://"
-	FileReferenceReadPath           = "/_apteva/internal/file-references/read"
-	HeaderFileReadSignature         = "X-Apteva-File-Read-Signature"
-	FileReferenceSchemaKey          = "x-apteva-file"
-	MaxFileReferenceBytes     int64 = 25 << 20
+	FileReferencesVersion                   = "apteva-file-references/v1"
+	FileReferencePrefix                     = "blobref://"
+	LegacyFileReferencePrefix               = "apteva-file://"
+	FileReferenceReadPath                   = "/_apteva/internal/file-references/read"
+	HeaderFileReadSignature                 = "X-Apteva-File-Read-Signature"
+	FileReferenceSchemaKey                  = "x-apteva-file"
+	FileReferencePassthroughSchemaKey       = "x-apteva-file-reference"
+	MaxFileReferenceBytes             int64 = 25 << 20
 )
 
 // HeaderFileReferenceThread is supplied by trusted runtime HTTP transport,
@@ -98,11 +99,43 @@ type FileReferenceSource interface {
 	OpenFileReference(context.Context, FileReadRequest) (io.ReadCloser, error)
 }
 
+// FileReferenceReadRequest asks the platform for bytes through an app-owned,
+// trusted thread scope. It is intended for authorized app presentation flows,
+// such as rendering a generated image in a conversation history. It is not a
+// model-facing tool or a public download URL.
+type FileReferenceReadRequest struct {
+	Ref   string             `json:"ref"`
+	Scope FileReferenceScope `json:"scope"`
+}
+
+// FileReferenceReadResponse contains authoritative metadata and bytes for an
+// app presentation flow. The platform checks the app installation, project,
+// agent/thread scope and current grant before returning it.
+type FileReferenceReadResponse struct {
+	FileReference
+	Data []byte `json:"data"`
+}
+
+// FileReferenceReader is an optional platform extension for apps that need to
+// present a granted reference to an authorized user. It does not replace the
+// source-reader route used by file-aware tool dispatch.
+type FileReferenceReader interface {
+	ReadFileReference(context.Context, FileReferenceReadRequest) (*FileReferenceReadResponse, error)
+}
+
 // FileArgumentSchema declares a supported tool argument. Tools still receive
 // the existing _binary envelope. References can also be used in array items or
 // nested properties marked with this helper.
 func FileArgumentSchema(description string) map[string]any {
 	return map[string]any{FileReferenceSchemaKey: true, "description": description,
+		"anyOf": []any{map[string]any{"type": "string"}, map[string]any{"type": "object"}}}
+}
+
+// FileReferencePassthroughSchema declares an argument that accepts a shared
+// handle while preserving the handle for the destination app. The server
+// authenticates and authorizes the reference but does not read its bytes.
+func FileReferencePassthroughSchema(description string) map[string]any {
+	return map[string]any{FileReferencePassthroughSchemaKey: true, "description": description,
 		"anyOf": []any{map[string]any{"type": "string"}, map[string]any{"type": "object"}}}
 }
 
@@ -176,7 +209,11 @@ func fileReferenceReadHandler(source FileReferenceSource) http.Handler {
 }
 
 func (c *httpPlatformClient) fileReferenceCall(ctx context.Context, action string, req any, out any) error {
-	return c.fileTransportCall(ctx, c.client, "/api/apps/callback/file-references/"+action, req, out, 64<<10)
+	return c.fileReferenceCallLimit(ctx, action, req, out, 64<<10)
+}
+
+func (c *httpPlatformClient) fileReferenceCallLimit(ctx context.Context, action string, req any, out any, limit int64) error {
+	return c.fileTransportCall(ctx, c.client, "/api/apps/callback/file-references/"+action, req, out, limit)
 }
 
 // Both storage adapters use the same structured error contract.
@@ -242,6 +279,14 @@ func (c *httpPlatformClient) GetFileReference(ctx context.Context, ref string) (
 	}
 	return &out, nil
 }
+func (c *httpPlatformClient) ReadFileReference(ctx context.Context, req FileReferenceReadRequest) (*FileReferenceReadResponse, error) {
+	var out FileReferenceReadResponse
+	err := c.fileReferenceCallLimit(ctx, "read", req, &out, 36<<20)
+	if err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
 func (p *projectScopedClient) fileReferences() (FileReferencesClient, error) {
 	client, ok := p.inner.(FileReferencesClient)
 	if !ok {
@@ -272,6 +317,19 @@ func (p *projectScopedClient) GetFileReference(ctx context.Context, ref string) 
 		return nil, errors.New("file reference project differs from scoped client")
 	}
 	return out, err
+}
+func (p *projectScopedClient) ReadFileReference(ctx context.Context, req FileReferenceReadRequest) (*FileReferenceReadResponse, error) {
+	if req.Scope.ProjectID == "" {
+		req.Scope.ProjectID = p.projectID
+	}
+	if req.Scope.ProjectID != p.projectID {
+		return nil, errors.New("file reference read project differs from scoped client")
+	}
+	client, ok := p.inner.(FileReferenceReader)
+	if !ok {
+		return nil, errors.New("platform client does not support file reference reads")
+	}
+	return client.ReadFileReference(ctx, req)
 }
 func (p *projectScopedClient) GrantFileReference(ctx context.Context, req FileReferenceGrant) error {
 	if _, err := p.GetFileReference(ctx, req.Ref); err != nil {
