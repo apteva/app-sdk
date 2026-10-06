@@ -1,0 +1,27 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "apteva-app-resource-ref-v1.schema.json",
+  "title": "Apteva app resource reference v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "app_install_id",
+    "resource_type",
+    "resource_id"
+  ],
+  "properties": {
+    "app_install_id": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "resource_type": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_-]*(\\.[a-z][a-z0-9_-]*)+$"
+    },
+    "resource_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 1024
+    }
+  }
+}

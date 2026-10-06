@@ -66,6 +66,7 @@ Set the relevant block in `apteva.yaml` (see `manifest.go` for the full schema):
 - `prompt_fragments` — concatenated into instance directives
 - `ui_panels` — UMD bundle into Apteva's dashboard slot
 - `ui_surfaces` — code-free, declarative native UI for iOS and Android
+- `exports` — versioned read-only summaries/entities for discoverable app contributions
 - `ui_pages` — iframe-mounted top-level nav entry
 - `ui_app` — own subdomain via Traefik (white-label)
 - `channels` — inbound + outbound message adapters
@@ -82,6 +83,10 @@ query that does not change state. The SDK emits these under `annotations` in
 `tools/list`, separate from the `_meta` extension fields. Unannotated tools keep
 their existing response shape. These hints describe behavior, not execution
 permissions; only annotate a tool as read-only if its handler has no writes.
+
+See [CONTRIBUTIONS.md](CONTRIBUTIONS.md) for generic discovery, shared data
+contracts, and resource cards in existing `chat.message_attachment` components.
+The SDK contract is available; discovery/proxy endpoints require server support.
 
 ### Native mobile surfaces
 

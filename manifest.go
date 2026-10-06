@@ -91,9 +91,13 @@ const (
 // MCP tools the user must attach, minimum platform version, and
 // other Apteva apps that must be installed alongside.
 type Requires struct {
-	Permissions       []Permission     `yaml:"permissions" json:"permissions"`
-	MCPToolsAtRuntime []string         `yaml:"mcp_tools_at_runtime" json:"mcp_tools_at_runtime"`
-	Apps              []RequiredAppRef `yaml:"apps,omitempty" json:"apps,omitempty"`
+	// Contributions declares contracts or resource renderers this app consumes.
+	// Discovery is consented by contract, rather than by a hard-coded app list.
+	// This declaration never grants access to producer records on its own.
+	Contributions     []ContributionRequirement `yaml:"contributions,omitempty" json:"contributions,omitempty"`
+	Permissions       []Permission              `yaml:"permissions" json:"permissions"`
+	MCPToolsAtRuntime []string                  `yaml:"mcp_tools_at_runtime" json:"mcp_tools_at_runtime"`
+	Apps              []RequiredAppRef          `yaml:"apps,omitempty" json:"apps,omitempty"`
 	// Integrations declares roles this app fills with either an
 	// integration connection or another Apteva app. The operator
 	// binds each role at install time; the app reads the binding
@@ -256,6 +260,8 @@ type RequiredAppRef struct {
 // Provides describes the surfaces this app contributes back to the
 // platform — none, one, or many.
 type Provides struct {
+	// Exports advertises read-only app-owned data for generic consumers.
+	Exports         []AppExport      `yaml:"exports,omitempty" json:"exports,omitempty"`
 	HTTPRoutes      []RouteSpec      `yaml:"http_routes" json:"http_routes"`
 	MCPTools        []MCPToolSpec    `yaml:"mcp_tools" json:"mcp_tools"`
 	PromptFragments []PromptFragment `yaml:"prompt_fragments" json:"prompt_fragments"`
@@ -411,6 +417,13 @@ type Skill struct {
 // anywhere; they're effectively dead code (intentional: forces apps
 // to be explicit about where their UI shows up).
 type UIComponent struct {
+	// ResourceTypes selects structured app resource references this component
+	// can render. Matching is scoped to the originating installation and slot.
+	// Empty preserves existing explicit component/props attachments.
+	ResourceTypes []string `yaml:"resource_types,omitempty" json:"resource_types,omitempty"`
+	// Permissions names producer-defined permissions required to render a
+	// resource card. Record-level authorization still applies when fetching it.
+	Permissions []string `yaml:"permissions,omitempty" json:"permissions,omitempty"`
 	Name        string   `yaml:"name" json:"name"`   // kebab-case, scoped under the app
 	Entry       string   `yaml:"entry" json:"entry"` // sidecar path: "/ui/FileCard.mjs"
 	Slots       []string `yaml:"slots" json:"slots"` // allowlist of where it can render
@@ -1021,6 +1034,9 @@ const (
 	// template definitions for projects visible to its installation. Template
 	// definitions contain configuration only, never credentials or runtime data.
 	PermTemplatesRead Permission = "platform.templates.read"
+	// PermContributionsRead permits discovery and read-only access to consented
+	// contribution contracts. Producer and record grants are checked separately.
+	PermContributionsRead Permission = "platform.contributions.read"
 )
 
 // AllPermissions returns the full taxonomy — used by the dashboard's
@@ -1046,6 +1062,7 @@ func AllPermissions() []Permission {
 		PermDashboardConnect,
 		PermTelemetryRead,
 		PermTemplatesRead,
+		PermContributionsRead,
 	}
 }
 
@@ -1055,6 +1072,8 @@ func AllPermissions() []Permission {
 // callers remain forward-compatible with newer SDK taxonomies.
 func PermissionDescription(permission Permission) string {
 	switch permission {
+	case PermContributionsRead:
+		return "Discover app widgets and read consented app data exports in accessible projects. Producer permissions and record access still apply."
 	case PermFileReferences:
 		return "Register immutable app attachments and grant their use to this app’s agent threads."
 	case PermPlatformBackupRead:
@@ -1107,6 +1126,9 @@ func ParseManifest(data []byte) (*Manifest, error) {
 // independent of the deployment context. Dynamic checks (image exists,
 // permission scope agrees with what the user consented) live elsewhere.
 func ValidateManifest(m *Manifest) error {
+	if err := validateContributions(m); err != nil {
+		return err
+	}
 	if err := validateSetup(m); err != nil {
 		return err
 	}
