@@ -2048,6 +2048,9 @@ type ConnectionFilter struct {
 }
 
 type PlatformInstance struct {
+	// Optional server-owned visual identity. Older servers leave these empty.
+	Icon            string `json:"icon,omitempty"`
+	IconColor       string `json:"icon_color,omitempty"`
 	ID              int64  `json:"id"`
 	Name            string `json:"name"`
 	Status          string `json:"status"`
