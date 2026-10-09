@@ -1351,6 +1351,9 @@ type PlatformProject struct {
 // IngressExposeRequest is the body for PlatformClient.ExposeIngress.
 // Target must be an absolute http://, https://, or app:// URL.
 type IngressExposeRequest struct {
+	// Mode selects ordinary HTTP ingress or an SNI-routed forward proxy.
+	// forward_proxy requires an app-owned target and native TLS.
+	Mode      string `json:"mode,omitempty"`
 	Hostname  string `json:"hostname"`
 	Target    string `json:"target"`
 	ProjectID string `json:"project_id,omitempty"`
@@ -1364,6 +1367,7 @@ type IngressExposeRequest struct {
 // IngressRoute is one server-native hostname exposure owned by an app
 // install.
 type IngressRoute struct {
+	Mode           string                    `json:"mode,omitempty"`
 	ID             int64                     `json:"id"`
 	Hostname       string                    `json:"hostname"`
 	Target         string                    `json:"target"`

@@ -6,6 +6,9 @@ prompt fragments, UI panels, and workers.
 
 Apps depend on this module only — never on `apteva-server` internals.
 
+For verified client addresses in HTTP and WebSocket handlers, see
+[client IP metadata](docs/client-ip.md).
+
 Apteva apps can also be packaged as additive Agent Plugins 1.0.0 packages.
 See [AGENT_PLUGINS.md](AGENT_PLUGINS.md); existing `apteva.yaml` packages and
 install URLs remain fully supported.
