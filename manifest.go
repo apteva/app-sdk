@@ -658,6 +658,10 @@ type WorkerSpec struct {
 //	image     — fallback for non-Go apps or when extra isolation
 //	            matters. Orchestrator deploys the image to a worker.
 type Runtime struct {
+	// ActivationStrategy controls replacement of one installation. Exclusive
+	// stops the previous process before starting its replacement, including
+	// listeners whose ports are selected through app configuration.
+	ActivationStrategy string `yaml:"activation_strategy,omitempty" json:"activation_strategy,omitempty"`
 	// Kind — "service" | "source" | "static". The first two start a
 	// sidecar (image pull or git build); "static" means no process at
 	// all — the app contributes only assets that apteva-server mounts
@@ -1126,6 +1130,9 @@ func ParseManifest(data []byte) (*Manifest, error) {
 // independent of the deployment context. Dynamic checks (image exists,
 // permission scope agrees with what the user consented) live elsewhere.
 func ValidateManifest(m *Manifest) error {
+	if err := ValidateActivationStrategy(m.Runtime); err != nil {
+		return err
+	}
 	if err := validateContributions(m); err != nil {
 		return err
 	}

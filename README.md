@@ -238,6 +238,42 @@ process/routing. Automatic activation of `requires_restore` apps is rejected:
 those apps need an offline migration and a verified backup/restore procedure.
 Do not restore a database underneath a running writer.
 
+### Exclusive process activation
+
+Apps that need an exclusive listener or another process-owned resource can
+declare:
+
+```yaml
+runtime:
+  activation_strategy: exclusive
+```
+
+Absent or `auto` retains normal activation. `exclusive` prepares the replacement
+while the previous process serves, then stops and reaps that process before
+starting the replacement. Either version's policy, or declared fixed host ports,
+requires this sequence, so removing the policy still gets one exclusive update.
+The scope is one installation; two installations using the same app-configured
+port still need distinct configuration. Unknown strategies are rejected, and
+static apps cannot declare `exclusive`.
+
+A supporting local supervisor verifies HTTP readiness and known fixed TCP listeners.
+Apps must keep `/health` unsuccessful until all required configured or UDP
+listeners are ready; binding during `OnMount` uses the SDK's existing startup
+gate. Exclusive updates are temporarily unavailable during stop/start and can
+interrupt active sessions. Failed activation restarts the previous binary with
+its captured configuration and verifies it using its original startup deadline.
+Failed rollback is reported as an error. Database restore restrictions still
+apply.
+
+Release order: publish a supporting SDK tag, release and deploy the supporting
+Apteva server, then release apps that opt in. Set `min_apteva_version` to that
+actual server release before an app relies on this field. The SDK field is
+available from v0.100.0; server support remains unreleased. Do not assign an
+earlier server version as the support floor. Older servers may ignore these
+fields, so upgrade them before deploying an opting-in app. The supporting server checks `min_apteva_version` at installation and
+activation; local `dev` builds validate its syntax without a release comparison.
+Manual/remote app mounting does not provide the exclusive supervisor contract.
+
 ## User notifications
 
 Apps can opt existing published events into dashboard, desktop and mobile notifications. See [NOTIFICATIONS.md](NOTIFICATIONS.md) for declarations, defaults, audiences, resource follows and delivery semantics.
