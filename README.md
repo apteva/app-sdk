@@ -267,10 +267,10 @@ apply.
 
 Release order: publish a supporting SDK tag, release and deploy the supporting
 Apteva server, then release apps that opt in. Set `min_apteva_version` to that
-actual server release before an app relies on this field. The SDK field is
-available from v0.100.0; server support remains unreleased. Do not assign an
-earlier server version as the support floor. Older servers may ignore these
-fields, so upgrade them before deploying an opting-in app. The supporting server checks `min_apteva_version` at installation and
+actual server release before an app relies on this field. Support starts in
+app SDK `v0.100.0` and Apteva `0.87.4`; use `min_apteva_version: 0.87.4`
+for an opting-in app. Older servers may ignore these fields, so upgrade them
+before deploying an opting-in app. The supporting server checks `min_apteva_version` at installation and
 activation; local `dev` builds validate its syntax without a release comparison.
 Manual/remote app mounting does not provide the exclusive supervisor contract.
 
