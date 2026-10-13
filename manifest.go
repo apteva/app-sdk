@@ -658,6 +658,8 @@ type WorkerSpec struct {
 //	image     — fallback for non-Go apps or when extra isolation
 //	            matters. Orchestrator deploys the image to a worker.
 type Runtime struct {
+	// Package contains portable release metadata for managed remote execution.
+	Package *RuntimePackage `yaml:"package,omitempty" json:"package,omitempty"`
 	// ActivationStrategy controls replacement of one installation. Exclusive
 	// stops the previous process before starting its replacement, including
 	// listeners whose ports are selected through app configuration.
@@ -1130,6 +1132,9 @@ func ParseManifest(data []byte) (*Manifest, error) {
 // independent of the deployment context. Dynamic checks (image exists,
 // permission scope agrees with what the user consented) live elsewhere.
 func ValidateManifest(m *Manifest) error {
+	if err := ValidateRuntimePackage(m.Runtime.Package); err != nil {
+		return err
+	}
 	if err := ValidateActivationStrategy(m.Runtime); err != nil {
 		return err
 	}
