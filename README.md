@@ -289,3 +289,36 @@ the manifest contract and CRM/Messaging adoption examples.
 See [FILE_REFERENCES.md](FILE_REFERENCES.md) for server-stored blobs and app-owned attachments using one handle,
 thread grants, internal resolution into binary tool arguments, integration calls,
 and capability-based migration from older servers.
+
+## Portable managed deployment packages
+
+SDK v0.101.0 preserves and validates optional `runtime.package` release metadata.
+A standard source app uses its Go entry point, declared UI/migrations/skills and
+optional `native/` runtime directory. Server inspects the selected backend target
+before building; platform, gateway and package delivery are operator-independent.
+
+Declare actual lifecycle semantics once for the release:
+
+```yaml
+runtime:
+  package:
+    app_capabilities:
+      passive_start: true
+      drain: true
+      replica_safe: false
+      worker_coordination: false
+      routing: key
+```
+
+Optional `files`, argv-based `build` steps, `cgo`, `abi` and `system_libraries`
+describe exceptions. CGO requires a compatible builder or verified prebuilt
+package. No release declaration contains installation configuration or secrets.
+Older apps remain supported with conservative lifecycle defaults. A release
+with private managed lifecycle routes must declare its capabilities; they are
+verified against its authenticated running descriptor before activation.
+
+Runtime backends advertise `package_delivery` with protocol
+`apteva.runtime-package/files-v1` and `target_inspection: true`. Their protected
+`POST inspect-target` returns `RuntimeTargetInfo` without requiring an artifact.
+Supporting Server implementation is currently local/unreleased; these optional
+fields do not imply automatic support on older Server versions.
