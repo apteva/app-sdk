@@ -1639,6 +1639,14 @@ type RealtimeAudioTerminalMessage struct {
 	Detail    string                      `json:"detail,omitempty"`
 }
 
+// RealtimeExecutionConfig selects Core-managed inference for a voice thread.
+// Omission inherits the provider configuration. Mode is "thread" or "provider".
+type RealtimeExecutionConfig struct {
+	Mode     string `json:"mode,omitempty"`
+	Provider string `json:"provider,omitempty"`
+	Model    string `json:"model,omitempty"`
+}
+
 // RealtimeSpawnRequest is the body for PlatformClient.SpawnRealtimeThread.
 // Creates a realtime (voice/audio) thread in core that the app can
 // bridge audio into. The audio bridge runs over a separate
@@ -1664,6 +1672,9 @@ type RealtimeSpawnRequest struct {
 	// Provider — explicit realtime provider name (e.g. "openai-realtime").
 	// Empty = pool default.
 	Provider string `json:"provider,omitempty"`
+	// Model selects a configured voice model tier: large, medium or small.
+	Model             string                   `json:"model,omitempty"`
+	RealtimeExecution *RealtimeExecutionConfig `json:"realtime_execution,omitempty"`
 	// CapabilityMode explicitly controls how Tools and MCP are interpreted.
 	// New callers should always set it. Omission retains the legacy behavior:
 	// omitted Tools+MCP inherit the agent; otherwise they are explicit.

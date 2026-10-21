@@ -23,11 +23,13 @@ func telemetryTestClient(baseURL string) *httpPlatformClient {
 
 func TestSubscribeTelemetryReceivesFilteredEvents(t *testing.T) {
 	var gotQuery atomic.Value
+	var requests atomic.Int32
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/apps/callback/telemetry" {
 			http.NotFound(w, r)
 			return
 		}
+		requests.Add(1)
 		gotQuery.Store(r.URL.RawQuery)
 		if r.Header.Get("Authorization") != "Bearer install-token" {
 			http.Error(w, "unauthorized", http.StatusUnauthorized)
@@ -72,6 +74,9 @@ func TestSubscribeTelemetryReceivesFilteredEvents(t *testing.T) {
 	}
 	if received[0].AgentID != 41 || received[0].Type != "llm.tool_chunk" {
 		t.Fatalf("unexpected event: %+v", received[0])
+	}
+	if requests.Load() != 1 {
+		t.Fatal("subscription opened a probe connection", requests.Load())
 	}
 	// The filters must ride the query string — they are enforced
 	// server-side, so omitting them would subscribe to the firehose.

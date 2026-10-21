@@ -33,14 +33,21 @@ type RuntimeAppCapabilities struct {
 
 const RuntimePackageProtocol = "apteva.runtime-package/files-v1"
 
+// RuntimeTargetCheck is a bounded diagnostic category, not provider log text.
+type RuntimeTargetCheck struct {
+	Name   string `json:"name"`   // ssh, systemd, gateway, capacity
+	Status string `json:"status"` // passed, blocked, unknown
+}
+
 // RuntimeTargetInfo is returned by an artifact-independent inspect-target.
 // HostKey identifies the physical reservation domain, never a credential.
 type RuntimeTargetInfo struct {
-	Platform        string   `json:"platform"`
-	HostKey         string   `json:"host_key"`
-	ABI             string   `json:"abi,omitempty"`
-	SystemLibraries []string `json:"system_libraries,omitempty"`
-	Formats         []string `json:"formats"`
+	Checks          []RuntimeTargetCheck `json:"checks,omitempty"`
+	Platform        string               `json:"platform"`
+	HostKey         string               `json:"host_key"`
+	ABI             string               `json:"abi,omitempty"`
+	SystemLibraries []string             `json:"system_libraries,omitempty"`
+	Formats         []string             `json:"formats"`
 }
 
 func runtimeReleasePath(p string) bool {

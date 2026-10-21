@@ -1037,6 +1037,11 @@ const (
 	// telemetry exposes directives, tool arguments, and model output in
 	// flight, and the consent screen should say so explicitly.
 	PermTelemetryRead Permission = "platform.telemetry.read"
+	// PermTelemetryObserve exposes content-free activity metadata and history.
+	PermTelemetryObserve Permission = "platform.telemetry.observe"
+	// PermRuntimesObserve permits read-only runtime inventory across installations
+	// within an authorized project. It grants no runtime control or content.
+	PermRuntimesObserve Permission = "platform.runtimes.observe"
 	// PermTemplatesRead lets an app read portable built-in and project-owned
 	// template definitions for projects visible to its installation. Template
 	// definitions contain configuration only, never credentials or runtime data.
@@ -1067,7 +1072,7 @@ func AllPermissions() []Permission {
 		PermDNSRead, PermDNSWrite,
 		PermPlatformBackupRead, PermPlatformBackupRestore,
 		PermDashboardConnect,
-		PermTelemetryRead,
+		PermTelemetryRead, PermTelemetryObserve, PermRuntimesObserve,
 		PermTemplatesRead,
 		PermContributionsRead,
 	}
@@ -1089,8 +1094,12 @@ func PermissionDescription(permission Permission) string {
 		return "Restore a platform backup, replacing app data and staging the platform database for restart."
 	case PermDashboardConnect:
 		return "Allow the entire dashboard to connect to registered HTTPS destinations. Requires an administrator-owned installation; does not grant CORS or file access."
+	case PermTelemetryObserve:
+		return "Read activity metadata and retained history without prompts, thoughts, message bodies or tool arguments."
+	case PermRuntimesObserve:
+		return "Observe runtime status, agents and installed apps across installations in authorized projects. Does not grant execution access."
 	case PermTelemetryRead:
-		return "Subscribe to live telemetry (thoughts, tool calls, streaming output) from agents you own."
+		return "Read live telemetry and retained history (thoughts, tool calls, streaming output) from agents you own."
 	case PermConnectionsManageOwnedCredentials:
 		return "Create, rotate, and revoke non-exportable integration credentials owned by this app installation."
 	case PermManagedTenantsManage:
