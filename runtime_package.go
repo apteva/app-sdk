@@ -42,12 +42,27 @@ type RuntimeTargetCheck struct {
 // RuntimeTargetInfo is returned by an artifact-independent inspect-target.
 // HostKey identifies the physical reservation domain, never a credential.
 type RuntimeTargetInfo struct {
-	Checks          []RuntimeTargetCheck `json:"checks,omitempty"`
-	Platform        string               `json:"platform"`
-	HostKey         string               `json:"host_key"`
-	ABI             string               `json:"abi,omitempty"`
-	SystemLibraries []string             `json:"system_libraries,omitempty"`
-	Formats         []string             `json:"formats"`
+	// StateAvailableBytes is free space on the filesystem used for persistent
+	// state and restoration staging, not total host disk capacity.
+	StateAvailableBytes *int64               `json:"state_available_bytes,omitempty"`
+	Checks              []RuntimeTargetCheck `json:"checks,omitempty"`
+	Platform            string               `json:"platform"`
+	HostKey             string               `json:"host_key"`
+	ABI                 string               `json:"abi,omitempty"`
+	SystemLibraries     []string             `json:"system_libraries,omitempty"`
+	Formats             []string             `json:"formats"`
+}
+
+// RuntimeStateTransferPolicy bounds a gzip/tar persistent-state transfer in
+// either direction. These limits are independent of application packages.
+// Backends advertising it must enforce the requested (possibly lower) policy
+// on snapshot and restore, supplied as X-Apteva-State-Transfer-Policy JSON.
+type RuntimeStateTransferPolicy struct {
+	Format           string `json:"format"`
+	MaxArchiveBytes  int64  `json:"max_archive_bytes"`
+	MaxExpandedBytes int64  `json:"max_expanded_bytes"`
+	MaxEntries       int64  `json:"max_entries"`
+	TimeoutSeconds   int64  `json:"timeout_seconds"`
 }
 
 func runtimeReleasePath(p string) bool {
