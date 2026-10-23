@@ -69,6 +69,7 @@ type Manifest struct {
 	Runtime      Runtime       `yaml:"runtime" json:"runtime"`
 	DB           *DBConfig     `yaml:"db,omitempty" json:"db,omitempty"`
 	ConfigSchema []ConfigField `yaml:"config_schema" json:"config_schema"`
+	AgentSetup   *AgentSetup   `yaml:"agent_setup,omitempty" json:"agent_setup,omitempty"`
 	Setup        *SetupSpec    `yaml:"setup,omitempty" json:"setup,omitempty"`
 
 	// Imports is an app-owned declarative catalog of external sources this
@@ -417,6 +418,7 @@ type Skill struct {
 // anywhere; they're effectively dead code (intentional: forces apps
 // to be explicit about where their UI shows up).
 type UIComponent struct {
+	HostUI *HostUI `yaml:"host_ui,omitempty" json:"host_ui,omitempty"`
 	// ResourceTypes selects structured app resource references this component
 	// can render. Matching is scoped to the originating installation and slot.
 	// Empty preserves existing explicit component/props attachments.
@@ -461,7 +463,8 @@ type UIComponent struct {
 	// SettingsSchema describes operator-owned, per-widget-instance settings.
 	// It is deliberately separate from PropsSchema, which describes props an
 	// agent supplies when attaching a component to a chat message.
-	SettingsSchema map[string]any `yaml:"settings_schema,omitempty" json:"settings_schema,omitempty"`
+	SettingsSchema map[string]any    `yaml:"settings_schema,omitempty" json:"settings_schema,omitempty"`
+	SettingsUI     *WidgetSettingsUI `yaml:"settings_ui,omitempty" json:"settings_ui,omitempty"`
 	// Native is the declarative renderer used by native clients for this same
 	// component identity. The web dashboard continues to load Entry, while
 	// iOS and Android load Native.Entry and render it without executing remote
@@ -508,6 +511,7 @@ type NativeUIRenderer struct {
 // context. Surface documents must never contain credentials or absolute API
 // origins; their request paths are resolved inside the declaring app.
 type UISurface struct {
+	HostUI *HostUI  `yaml:"host_ui,omitempty" json:"host_ui,omitempty"`
 	ID     string   `yaml:"id" json:"id"`         // lowercase slug, scoped under the app
 	Label  string   `yaml:"label" json:"label"`   // native navigation/list label
 	Icon   string   `yaml:"icon" json:"icon"`     // semantic icon name, mapped by each client
@@ -597,11 +601,12 @@ type PromptFragment struct {
 //	instance.status — thin status strip on the agent detail header
 //	settings.app    — embedded into the Apps tab's per-install detail
 type UIPanel struct {
-	Slot      string `yaml:"slot" json:"slot"`
-	Label     string `yaml:"label" json:"label"`
-	Icon      string `yaml:"icon" json:"icon"`
-	Entry     string `yaml:"entry" json:"entry"`                             // sidecar path used as iframe fallback
-	Suggested bool   `yaml:"suggested,omitempty" json:"suggested,omitempty"` // selected by default until the user customizes this slot
+	HostUI    *HostUI `yaml:"host_ui,omitempty" json:"host_ui,omitempty"`
+	Slot      string  `yaml:"slot" json:"slot"`
+	Label     string  `yaml:"label" json:"label"`
+	Icon      string  `yaml:"icon" json:"icon"`
+	Entry     string  `yaml:"entry" json:"entry"`                             // sidecar path used as iframe fallback
+	Suggested bool    `yaml:"suggested,omitempty" json:"suggested,omitempty"` // selected by default until the user customizes this slot
 }
 
 // UIApp declares a standalone, own-origin UI served at a Traefik
@@ -1142,6 +1147,9 @@ func ParseManifest(data []byte) (*Manifest, error) {
 // independent of the deployment context. Dynamic checks (image exists,
 // permission scope agrees with what the user consented) live elsewhere.
 func ValidateManifest(m *Manifest) error {
+	if err := ValidateAgentSetup(m.AgentSetup); err != nil {
+		return err
+	}
 	if err := ValidateRuntimeIngress(m.Runtime.Ingress); err != nil {
 		return err
 	}
@@ -1276,6 +1284,11 @@ func ValidateManifest(m *Manifest) error {
 	if err := validateProvidedPermissions(&m.Provides); err != nil {
 		return err
 	}
+	for i, panel := range m.Provides.UIPanels {
+		if err := validateHostUI(panel.HostUI); err != nil {
+			return fmt.Errorf("provides.ui_panels[%d].host_ui: %w", i, err)
+		}
+	}
 	if err := validateUISurfaces(m.Provides.UISurfaces); err != nil {
 		return err
 	}
@@ -1299,6 +1312,12 @@ func validateUIComponents(components []UIComponent) error {
 	for i := range components {
 		component := &components[i]
 		prefix := fmt.Sprintf("provides.ui_components[%d]", i)
+		if err := validateWidgetSettingsUI(component.SettingsSchema, component.SettingsUI); err != nil {
+			return fmt.Errorf("%s.settings_ui: %w", prefix, err)
+		}
+		if err := validateHostUI(component.HostUI); err != nil {
+			return fmt.Errorf("%s.host_ui: %w", prefix, err)
+		}
 		if !isSlug(component.Name) {
 			return fmt.Errorf("%s.name must be a lowercase slug (a-z0-9-)", prefix)
 		}
@@ -1441,6 +1460,9 @@ func validateUISurfaces(surfaces []UISurface) error {
 	seen := make(map[string]bool, len(surfaces))
 	for i, surface := range surfaces {
 		prefix := fmt.Sprintf("provides.ui_surfaces[%d]", i)
+		if err := validateHostUI(surface.HostUI); err != nil {
+			return fmt.Errorf("%s.host_ui: %w", prefix, err)
+		}
 		if !isSlug(surface.ID) {
 			return fmt.Errorf("%s.id must be a lowercase slug (a-z0-9-)", prefix)
 		}

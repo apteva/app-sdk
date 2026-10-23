@@ -322,3 +322,15 @@ Runtime backends advertise `package_delivery` with protocol
 `POST inspect-target` returns `RuntimeTargetInfo` without requiring an artifact.
 Supporting Server implementation is currently local/unreleased; these optional
 fields do not imply automatic support on older Server versions.
+
+## App UI and agent-setup metadata
+
+SDK v0.105.0 adds optional manifest declarations for:
+
+- [Agent creation recommendations](docs/agent-setup.md): `agent_setup` suggestions with no automatic installation, attachment or permission grants.
+- [Widget instance configuration](docs/widget-settings.md): `settings_ui`, scoped dependent option discovery and an opt-in read-only draft preview.
+- [Host UI requests](docs/host-ui.md): surface-scoped presentation preferences, initially for floating chat-launcher visibility.
+
+The SDK preserves and validates these declarations. Their host behavior requires
+a supporting Apteva Server/dashboard release; support is currently local and
+unreleased. Older hosts can ignore the optional metadata.
