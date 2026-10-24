@@ -604,15 +604,20 @@ func newMCPHandler(app App, ctx *AppCtx) *mcpHandler {
 // context and encoding logic here prevents the fast path from weakening or
 // drifting away from ordinary app-to-app calls.
 func (h *mcpHandler) callTool(ctx context.Context, caller *Caller, boundApp bool, name string, args map[string]any) ([]byte, *mcpError) {
+	body, _, err := h.callToolResult(ctx, caller, boundApp, name, args)
+	return body, err
+}
+
+func (h *mcpHandler) callToolResult(ctx context.Context, caller *Caller, boundApp bool, name string, args map[string]any) ([]byte, bool, *mcpError) {
 	index, ok := h.toolIndex[name]
 	if !ok {
-		return nil, &mcpError{Code: -32601, Message: "tool not found: " + name}
+		return nil, false, &mcpError{Code: -32601, Message: "tool not found: " + name}
 	}
 	matched := &h.tools[index]
 	if h.toolExposure(*matched) == ToolExposureAppOnly && !boundApp {
 		// Deliberately match the unknown-tool response. Agent and direct MCP
 		// clients must not be able to enumerate private app APIs.
-		return nil, &mcpError{Code: -32601, Message: "tool not found: " + name}
+		return nil, false, &mcpError{Code: -32601, Message: "tool not found: " + name}
 	}
 	if args == nil {
 		args = map[string]any{}
@@ -622,10 +627,10 @@ func (h *mcpHandler) callTool(ctx context.Context, caller *Caller, boundApp bool
 		if spec != nil && spec.Requires != "" {
 			resource, err := substituteResource(spec.ResourceFrom, args)
 			if err != nil {
-				return nil, &mcpError{Code: -32602, Message: err.Error()}
+				return nil, false, &mcpError{Code: -32602, Message: err.Error()}
 			}
 			if !caller.Allows(spec.Requires, resource) {
-				return nil, &mcpError{Code: -32000, Message: (&ErrForbidden{Permission: spec.Requires, Resource: resource}).Error()}
+				return nil, false, &mcpError{Code: -32000, Message: (&ErrForbidden{Permission: spec.Requires, Resource: resource}).Error()}
 			}
 		}
 	}
@@ -645,16 +650,23 @@ func (h *mcpHandler) callTool(ctx context.Context, caller *Caller, boundApp bool
 	case matched.Handler != nil:
 		res, err = matched.Handler(handlerCtx, args)
 	default:
-		return nil, &mcpError{Code: -32603, Message: "tool " + name + ": no handler registered"}
+		return nil, false, &mcpError{Code: -32603, Message: "tool " + name + ": no handler registered"}
 	}
 	if err != nil {
-		return nil, &mcpError{Code: -32000, Message: err.Error()}
+		return nil, false, &mcpError{Code: -32000, Message: err.Error()}
+	}
+	if result, ok := res.(*MCPResult); ok && result == nil {
+		return nil, false, &mcpError{Code: -32000, Message: "nil MCPResult"}
 	}
 	body, err := marshalJSONNoHTMLEscape(res)
 	if err != nil {
-		return nil, &mcpError{Code: -32000, Message: "encode result: " + err.Error()}
+		return nil, false, &mcpError{Code: -32000, Message: "encode result: " + err.Error()}
 	}
-	return body, nil
+	_, native := res.(MCPResult)
+	if _, ok := res.(*MCPResult); ok {
+		native = true
+	}
+	return body, native, nil
 }
 
 type mcpRequest struct {
@@ -747,7 +759,7 @@ func (h *mcpHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	case "tools/call":
 		name, _ := req.Params["name"].(string)
 		args, _ := req.Params["arguments"].(map[string]any)
-		body, callErr := h.callTool(r.Context(), h.buildCaller(r), strings.TrimSpace(r.Header.Get(HeaderBoundCallerInstallID)) != "", name, args)
+		body, native, callErr := h.callToolResult(r.Context(), h.buildCaller(r), strings.TrimSpace(r.Header.Get(HeaderBoundCallerInstallID)) != "", name, args)
 		if callErr != nil {
 			writeMCPErr(w, req.ID, callErr.Code, callErr.Message)
 			return
@@ -756,6 +768,10 @@ func (h *mcpHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			w.Header().Set(HeaderAppResultFormat, AppResultJSON)
 			w.Header().Set("Content-Type", "application/json")
 			_, _ = w.Write(body)
+			return
+		}
+		if native {
+			writeMCP(w, req.ID, json.RawMessage(body))
 			return
 		}
 		writeMCP(w, req.ID, map[string]any{"content": []map[string]any{

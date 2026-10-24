@@ -46,6 +46,31 @@ func (a *MyApp) EventHandlers() []sdk.EventHandler { return nil }
 func main() { sdk.Run(&MyApp{}) }
 ```
 
+## Native MCP tool content
+
+Tools return ordinary Go values as JSON inside an MCP text block by default.
+Return `sdk.MCPResult` (or its pointer) to supply text and actual image content
+to a vision-capable calling model:
+
+```go
+return sdk.MCPResult{
+    Content: []sdk.MCPContent{
+        {Type: "text", Text: "Page 1 of 3"},
+        {Type: "image", MIMEType: "image/jpeg", Data: imageBase64},
+    },
+    StructuredContent: map[string]any{"total_pages": 3},
+}, nil
+```
+
+`Data` contains standard base64 without a data-URL prefix. The SDK validates
+image encoding and preserves empty text. Ordinary maps, including maps with a
+`content` field, keep their existing JSON-as-text response. Tool permissions,
+caller identity, project context, and RPC errors use the same execution path.
+
+Negotiated app-to-app JSON and internal batches retain the complete result.
+For older MCP-wrapped callbacks, pass `*sdk.MCPResult` to `CallAppResult` to
+preserve every block. Its `IsError` flag remains available to the consumer.
+
 ## What the platform injects at boot
 
 The orchestrator-deployed sidecar receives:

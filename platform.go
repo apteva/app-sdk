@@ -567,6 +567,15 @@ func decodeMCPEnvelope(raw json.RawMessage, appName, tool string, out any) error
 }
 
 func decodeMCPContent(raw json.RawMessage, appName, tool string, out any) (bool, error) {
+	// Native-content consumers opt in explicitly. Keep every image/text block
+	// on older callback transports too; ordinary JSON callers still unwrap the
+	// first text block exactly as before.
+	if _, native := out.(*MCPResult); native {
+		var result map[string]json.RawMessage
+		if json.Unmarshal(raw, &result) == nil && result["content"] != nil {
+			return true, json.Unmarshal(raw, out)
+		}
+	}
 	var result struct {
 		Content []struct {
 			Type string `json:"type"`
