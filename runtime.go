@@ -209,6 +209,9 @@ type RuntimeAgentEventRequest struct {
 // agent. The runtime and target agent are selected by the method arguments, so
 // this request never accepts a global agent id.
 type RuntimeRealtimeSpawnRequest struct {
+	// RealtimeMedia optionally selects provider transport and bridge audio format.
+	// Omission preserves the server/provider defaults. Requires server support.
+	RealtimeMedia              *RealtimeMediaConfig     `json:"realtime_media,omitempty"`
 	ThreadID                   string                   `json:"thread_id"`
 	Directive                  string                   `json:"directive"`
 	Voice                      string                   `json:"voice,omitempty"`

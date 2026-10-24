@@ -1653,6 +1653,9 @@ type RealtimeExecutionConfig struct {
 // token-authenticated WebSocket proxy — the result carries the full
 // URL the app uses to connect.
 type RealtimeSpawnRequest struct {
+	// RealtimeMedia optionally selects provider transport and bridge audio format.
+	// Omission preserves the server/provider defaults. Requires server support.
+	RealtimeMedia *RealtimeMediaConfig `json:"realtime_media,omitempty"`
 	// AgentID — the calling agent's instance id. The realtime thread
 	// is spawned INSIDE this agent (as a sub-thread of main), so
 	// the agent can address it via send/done. Apps using
