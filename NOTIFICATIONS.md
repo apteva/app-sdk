@@ -117,7 +117,12 @@ In-app bell, tab title, desktop popup, and mobile push are separate channels.
 Desktop alerts require browser permission and an open dashboard. Phone delivery
 requires a registered device, OS permission, and a configured Push relay.
 Push payloads contain the notification ID, project ID and opaque instance reference;
-private notification text stays on the originating server. Native clients fetch
+notification text stays on the originating server by default. A user may enable
+`Show notification previews` through `GET`/`PUT /api/notifications/previews`
+(`mobile_preview`: `hidden` or `content`). With explicit opt-in, Server forwards
+the already-rendered title and body to the relay/provider for the phone banner.
+This setting is independent of delivery channels and is rechecked on retries.
+The relay bounds the preview and does not persist it in delivery history. Native clients fetch
 `GET /api/notifications/{id}` with their own authenticated session before opening it.
 
 Deployment order: release this SDK, update the server/dashboard, release adopted
