@@ -108,6 +108,7 @@ type ToolHandlerCtx func(ctx context.Context, app *AppCtx, args map[string]any) 
 // declarative ("@every 5m" / cron) for periodic workers; leave empty
 // for one-shot run-to-completion workers.
 type Worker struct {
+	Workload string // Optional declared cooperative workload; empty preserves legacy behavior.
 	Name     string
 	Schedule string
 	Run      func(ctx context.Context, app *AppCtx) error
@@ -184,6 +185,7 @@ type ChannelMessage struct {
 // over reading the env directly — that's the single hook that makes
 // a global install behave correctly.
 type AppCtx struct {
+	resources      *resourceRuntime
 	startupContext context.Context
 	startup        *startupStatus
 	manifest       *Manifest

@@ -114,6 +114,11 @@ func runApp(lifetime context.Context, app App) error {
 		logger:   logger, cancel: cancelCh,
 		emitter:        newHTTPEmitter(os.Getenv("APTEVA_GATEWAY_URL"), outboundToken, logger),
 		startupContext: startupCtx, startup: status}
+	ctx.resources, err = newResourceRuntime(manifest.Runtime.ResourcePolicy, os.Getenv("APTEVA_RESOURCE_POLICY"))
+	if err != nil {
+		return err
+	}
+	defer ctx.resources.governor.Close()
 	if databases != nil {
 		ctx.db, ctx.readDB, ctx.dbState = databases.writer, databases.reader, databases.state
 	}
@@ -137,6 +142,7 @@ func runApp(lifetime context.Context, app App) error {
 	mux := http.NewServeMux()
 	mountAppRoutes(mux, app, ctx)
 	mountFrameworkRoutes(mux, app, ctx)
+	mountResourceRoutes(mux, ctx)
 	if !status.ready(startupCtx, withTokenAuth(mux, manifest.Provides.HTTPRoutes...)) {
 		return fmt.Errorf("initialization deadline expired")
 	}
@@ -186,7 +192,7 @@ func appOutboundToken() string {
 	return os.Getenv("APTEVA_APP_TOKEN")
 }
 
-// publicRoutes collects the method and pattern of every NoAuth route that
+// publicRoutePaths collects the patterns of every NoAuth route that
 // HTTPRoutes() declared. withTokenAuth consults this slice on every
 // request to decide whether to skip the bearer-token check. Populated
 // once per process at mountAppRoutes time; reads after that are
@@ -217,8 +223,8 @@ func mountAppRoutes(mux *http.ServeMux, app App, ctx *AppCtx) {
 	}
 }
 
-// matchesPublicRoute returns true when the request method and path satisfy a
-// NoAuth route. Literal exact/subtree routes retain their historical
+// matchesPublicRoute returns true when the request path satisfies any
+// NoAuth route pattern. Literal exact/subtree routes retain their historical
 // behavior, while patterns containing wildcards use http.ServeMux itself so
 // routes such as /v1/devices/{id}/test match exactly as they do at dispatch.
 func matchesPublicRoute(path, method string) bool {
@@ -400,7 +406,7 @@ func runWorker(ctx context.Context, w Worker, app *AppCtx, logger Logger) {
 			if pid != "" {
 				scoped = app.WithProject(pid)
 			}
-			if err := w.Run(ctx, scoped); err != nil && ctx.Err() == nil {
+			if err := scoped.WithWorkload(ctx, w.Workload, func(workCtx context.Context) error { return w.Run(workCtx, scoped) }); err != nil && ctx.Err() == nil {
 				logger.Warn("worker tick error", "name", w.Name, "project", pid, "err", err)
 			}
 		}
@@ -526,7 +532,7 @@ func withTokenAuth(h http.Handler, declaredRoutes ...RouteSpec) http.Handler {
 		// Per-route NoAuth carve-out. Apps mark UPnP/DLNA wire
 		// endpoints (or anything else where the LAN itself is the
 		// auth boundary) by setting Route.NoAuth=true; mountAppRoutes
-		// collected those routes into publicRoutes.
+		// collected those paths into publicRoutePaths.
 		if matchesPublicRoute(r.URL.Path, r.Method) {
 			h.ServeHTTP(w, r)
 			return

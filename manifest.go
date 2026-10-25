@@ -663,7 +663,8 @@ type WorkerSpec struct {
 //	image     — fallback for non-Go apps or when extra isolation
 //	            matters. Orchestrator deploys the image to a worker.
 type Runtime struct {
-	Ingress *RuntimeIngress `yaml:"ingress,omitempty" json:"ingress,omitempty"`
+	ResourcePolicy *ResourceDeclaration `yaml:"resource_policy,omitempty" json:"resource_policy,omitempty"`
+	Ingress        *RuntimeIngress      `yaml:"ingress,omitempty" json:"ingress,omitempty"`
 	// Package contains portable release metadata for managed remote execution.
 	Package *RuntimePackage `yaml:"package,omitempty" json:"package,omitempty"`
 	// ActivationStrategy controls replacement of one installation. Exclusive
@@ -1147,6 +1148,9 @@ func ParseManifest(data []byte) (*Manifest, error) {
 // independent of the deployment context. Dynamic checks (image exists,
 // permission scope agrees with what the user consented) live elsewhere.
 func ValidateManifest(m *Manifest) error {
+	if _, err := ResolveResources(m.Runtime.ResourcePolicy); err != nil {
+		return err
+	}
 	if err := ValidateAgentSetup(m.AgentSetup); err != nil {
 		return err
 	}
