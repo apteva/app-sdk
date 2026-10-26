@@ -48,6 +48,11 @@ func runApp(lifetime context.Context, app App) error {
 	if err := ValidateManifest(&manifest); err != nil {
 		return err
 	}
+	if service, ok := app.(ComponentService); ok {
+		if err := ValidateComponentProtocol(service.ComponentProtocol()); err != nil {
+			return err
+		}
+	}
 	logger := newDefaultLogger(manifest.Name)
 	logger.Info("starting", "name", manifest.Name, "version", manifest.Version)
 	budget := manifest.Runtime.StartupTimeoutSeconds
@@ -294,6 +299,7 @@ func cachedPublicRouteMatcher(pattern string) (matcher *http.ServeMux) {
 // (platform pushes events). If a ./ui directory exists, /ui/* serves
 // it as static files so the dashboard can iframe panel HTML directly.
 func mountFrameworkRoutes(mux *http.ServeMux, app App, ctx *AppCtx) {
+	mountComponentRoutes(mux, app)
 	mux.HandleFunc("/health", func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte(`{"ok":true,"status":"ready"}`))

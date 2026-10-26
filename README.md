@@ -6,6 +6,9 @@ prompt fragments, UI panels, and workers.
 
 Apps depend on this module only — never on `apteva-server` internals.
 
+For optional independently deployed services owned by an app, see
+[owned app components](docs/components.md).
+
 For verified client addresses in HTTP and WebSocket handlers, see
 [client IP metadata](docs/client-ip.md).
 

@@ -71,6 +71,9 @@ type Manifest struct {
 	ConfigSchema []ConfigField `yaml:"config_schema" json:"config_schema"`
 	AgentSetup   *AgentSetup   `yaml:"agent_setup,omitempty" json:"agent_setup,omitempty"`
 	Setup        *SetupSpec    `yaml:"setup,omitempty" json:"setup,omitempty"`
+	// Components are private services owned by this installation. Their
+	// placement is selected by the operator through Server's runtime controller.
+	Components ComponentDeclarations `yaml:"components,omitempty" json:"components,omitempty"`
 
 	// Imports is an app-owned declarative catalog of external sources this
 	// app knows how to import into itself. The platform may interpret this
@@ -1148,6 +1151,9 @@ func ParseManifest(data []byte) (*Manifest, error) {
 // independent of the deployment context. Dynamic checks (image exists,
 // permission scope agrees with what the user consented) live elsewhere.
 func ValidateManifest(m *Manifest) error {
+	if err := ValidateComponentDeclarations(m.Components); err != nil {
+		return err
+	}
 	if _, err := ResolveResources(m.Runtime.ResourcePolicy); err != nil {
 		return err
 	}
