@@ -1,0 +1,12 @@
+[
+ {"name":"health","method":"GET","path":"/health","auth":"none","status":200,"want":{"ok":true}},
+ {"name":"manifest auth","method":"GET","path":"/manifest","auth":"none","status":401},
+ {"name":"wrong token","method":"GET","path":"/manifest","auth":"invalid","status":401},
+ {"name":"query cannot bypass auth","method":"GET","path":"/manifest?token=test&project_id=other","auth":"none","status":401},
+ {"name":"manifest","method":"GET","path":"/manifest","auth":"valid","status":200,"want":{"schema":"apteva-app/v1"}},
+ {"name":"MCP auth","method":"POST","path":"/mcp","auth":"none","status":401},
+ {"name":"initialize","method":"POST","path":"/mcp","auth":"valid","body":{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"contract","version":"1"}}},"status":200,"want":{"jsonrpc":"2.0","id":1,"result":{"protocolVersion":"2024-11-05","capabilities":{"tools":{}}}}},
+ {"name":"unknown method","method":"POST","path":"/mcp","auth":"valid","body":{"jsonrpc":"2.0","id":"unknown","method":"does-not-exist"},"status":200,"want":{"jsonrpc":"2.0","id":"unknown","error":{"code":-32601}}},
+ {"name":"malformed JSON","method":"POST","path":"/mcp","auth":"valid","body":[],"status":200,"want":{"jsonrpc":"2.0","id":null,"error":{"code":-32700}}},
+ {"name":"MCP POST only","method":"GET","path":"/mcp","auth":"valid","status":405}
+]

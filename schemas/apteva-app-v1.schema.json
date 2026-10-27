@@ -1,0 +1,2102 @@
+{
+  "$defs": {
+    "AgentSetup": {
+      "additionalProperties": false,
+      "properties": {
+        "reason": {
+          "type": "string"
+        },
+        "recommended": {
+          "type": "boolean"
+        }
+      },
+      "type": "object"
+    },
+    "AppExport": {
+      "additionalProperties": false,
+      "properties": {
+        "changes_on": {
+          "items": {
+            "type": "string"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "contract": {
+          "type": "string"
+        },
+        "description": {
+          "type": "string"
+        },
+        "endpoint": {
+          "type": "string"
+        },
+        "id": {
+          "type": "string"
+        },
+        "label": {
+          "type": "string"
+        },
+        "permissions": {
+          "items": {
+            "type": "string"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        }
+      },
+      "type": "object"
+    },
+    "AsyncNotifySpec": {
+      "additionalProperties": false,
+      "properties": {
+        "events": {
+          "items": {
+            "type": "string"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "expires_after": {
+          "type": "string"
+        },
+        "match": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "type": [
+            "object",
+            "null"
+          ]
+        },
+        "mode": {
+          "type": "string"
+        },
+        "target": {
+          "type": "string"
+        },
+        "terminal_events": {
+          "items": {
+            "type": "string"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        }
+      },
+      "type": "object"
+    },
+    "AsyncResultSpec": {
+      "additionalProperties": false,
+      "properties": {
+        "id_field": {
+          "type": "string"
+        },
+        "notify": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/AsyncNotifySpec"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "type": "object"
+    },
+    "BinaryDep": {
+      "additionalProperties": false,
+      "properties": {
+        "executables": {
+          "items": {
+            "type": "string"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "hint": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "required": {
+          "type": "boolean"
+        },
+        "sources": {
+          "additionalProperties": {
+            "$ref": "#/$defs/BinarySource"
+          },
+          "type": [
+            "object",
+            "null"
+          ]
+        },
+        "version": {
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "BinarySource": {
+      "additionalProperties": false,
+      "properties": {
+        "archive": {
+          "type": "string"
+        },
+        "sha256": {
+          "type": "string"
+        },
+        "strip_root": {
+          "type": "integer"
+        },
+        "url": {
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "Branding": {
+      "additionalProperties": false,
+      "properties": {
+        "logo": {
+          "type": "string"
+        },
+        "theme_css": {
+          "type": "string"
+        },
+        "title_template": {
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "BundleSpec": {
+      "additionalProperties": false,
+      "properties": {
+        "sha256": {
+          "type": "string"
+        },
+        "url": {
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "ChannelSpec": {
+      "additionalProperties": false,
+      "properties": {
+        "capabilities": {
+          "items": {
+            "type": "string"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "name": {
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "ComponentDeclaration": {
+      "additionalProperties": false,
+      "properties": {
+        "capabilities": {
+          "$ref": "#/$defs/RuntimeAppCapabilities"
+        },
+        "manifest": {
+          "$ref": "#/$defs/Manifest"
+        },
+        "protocol": {
+          "type": "string"
+        },
+        "required": {
+          "type": "boolean"
+        }
+      },
+      "type": "object"
+    },
+    "ConfigField": {
+      "additionalProperties": false,
+      "properties": {
+        "app": {
+          "type": "string"
+        },
+        "app_role": {
+          "type": "string"
+        },
+        "default": {
+          "type": "string"
+        },
+        "description": {
+          "type": "string"
+        },
+        "discovery": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ConfigFieldDiscovery"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "fallback": {
+          "type": "string"
+        },
+        "integration_role": {
+          "type": "string"
+        },
+        "label": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "options": {
+          "items": {
+            "type": "string"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "required": {
+          "type": "boolean"
+        },
+        "required_if_role_bound": {
+          "type": "string"
+        },
+        "type": {
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "ConfigFieldDiscovery": {
+      "additionalProperties": false,
+      "properties": {
+        "label_field": {
+          "type": "string"
+        },
+        "response_path": {
+          "type": "string"
+        },
+        "route": {
+          "type": "string"
+        },
+        "tool": {
+          "type": "string"
+        },
+        "value_field": {
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "ContributionRequirement": {
+      "additionalProperties": false,
+      "properties": {
+        "contract": {
+          "type": "string"
+        },
+        "description": {
+          "type": "string"
+        },
+        "kind": {
+          "type": "string"
+        },
+        "optional": {
+          "type": "boolean"
+        },
+        "resource_type": {
+          "type": "string"
+        },
+        "slot": {
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "DBConfig": {
+      "additionalProperties": false,
+      "properties": {
+        "driver": {
+          "type": "string"
+        },
+        "migrations": {
+          "type": "string"
+        },
+        "path": {
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "EnvFrom": {
+      "additionalProperties": false,
+      "properties": {
+        "from": {
+          "type": "string"
+        },
+        "value": {
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "EventDecl": {
+      "additionalProperties": false,
+      "properties": {
+        "description": {
+          "type": "string"
+        },
+        "dynamic": {
+          "type": "boolean"
+        },
+        "name": {
+          "type": "string"
+        },
+        "notification": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/NotificationSpec"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "payload": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "type": [
+            "object",
+            "null"
+          ]
+        }
+      },
+      "type": "object"
+    },
+    "HostUI": {
+      "additionalProperties": false,
+      "properties": {
+        "chat_assistant": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/HostUIChatAssistant"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "type": "object"
+    },
+    "HostUIChatAssistant": {
+      "additionalProperties": false,
+      "properties": {
+        "launcher": {
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "IntegrationDep": {
+      "additionalProperties": false,
+      "properties": {
+        "capabilities": {
+          "items": {
+            "type": "string"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "compatible_app_names": {
+          "items": {
+            "type": "string"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "compatible_slugs": {
+          "items": {
+            "type": "string"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "events": {
+          "items": {
+            "type": "string"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "hint": {
+          "type": "string"
+        },
+        "kind": {
+          "type": "string"
+        },
+        "label": {
+          "type": "string"
+        },
+        "mode": {
+          "type": "string"
+        },
+        "required": {
+          "type": "boolean"
+        },
+        "role": {
+          "type": "string"
+        },
+        "tools": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "type": [
+            "object",
+            "null"
+          ]
+        }
+      },
+      "type": "object"
+    },
+    "MCPToolSpec": {
+      "additionalProperties": false,
+      "properties": {
+        "async_result": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/AsyncResultSpec"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "description": {
+          "type": "string"
+        },
+        "exposure": {
+          "type": "string"
+        },
+        "meta": {
+          "additionalProperties": {},
+          "type": [
+            "object",
+            "null"
+          ]
+        },
+        "name": {
+          "type": "string"
+        },
+        "requires": {
+          "type": "string"
+        },
+        "resource_from": {
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "Manifest": {
+      "additionalProperties": false,
+      "properties": {
+        "agent_setup": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/AgentSetup"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "author": {
+          "type": "string"
+        },
+        "components": {
+          "additionalProperties": {
+            "$ref": "#/$defs/ComponentDeclaration"
+          },
+          "type": [
+            "object",
+            "null"
+          ]
+        },
+        "config_schema": {
+          "items": {
+            "$ref": "#/$defs/ConfigField"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "db": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/DBConfig"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "description": {
+          "type": "string"
+        },
+        "display_name": {
+          "type": "string"
+        },
+        "homepage": {
+          "type": "string"
+        },
+        "icon": {
+          "type": "string"
+        },
+        "icon_style": {
+          "type": "string"
+        },
+        "imports": {
+          "additionalProperties": {},
+          "type": [
+            "object",
+            "null"
+          ]
+        },
+        "min_apteva_version": {
+          "type": "string"
+        },
+        "name": {
+          "pattern": "^[a-z0-9-]+$",
+          "type": "string"
+        },
+        "provides": {
+          "$ref": "#/$defs/Provides"
+        },
+        "requires": {
+          "$ref": "#/$defs/Requires"
+        },
+        "runtime": {
+          "$ref": "#/$defs/Runtime"
+        },
+        "schema": {
+          "const": "apteva-app/v1"
+        },
+        "scopes": {
+          "items": {
+            "enum": [
+              "project",
+              "global"
+            ]
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "setup": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SetupSpec"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "tags": {
+          "items": {
+            "type": "string"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "upgrade_policy": {
+          "type": "string"
+        },
+        "version": {
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "schema",
+        "name",
+        "version"
+      ],
+      "type": "object"
+    },
+    "NativeUIRenderer": {
+      "additionalProperties": false,
+      "properties": {
+        "entry": {
+          "type": "string"
+        },
+        "schema": {
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "NotificationChannels": {
+      "additionalProperties": false,
+      "properties": {
+        "desktop": {
+          "type": "boolean"
+        },
+        "in_app": {
+          "type": "boolean"
+        },
+        "mobile": {
+          "type": "boolean"
+        },
+        "tab": {
+          "type": "boolean"
+        }
+      },
+      "type": "object"
+    },
+    "NotificationFilter": {
+      "additionalProperties": false,
+      "properties": {
+        "field": {
+          "type": "string"
+        },
+        "label": {
+          "type": "string"
+        },
+        "options": {
+          "items": {
+            "$ref": "#/$defs/NotificationFilterOption"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        }
+      },
+      "type": "object"
+    },
+    "NotificationFilterOption": {
+      "additionalProperties": false,
+      "properties": {
+        "label": {
+          "type": "string"
+        },
+        "value": {
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "NotificationSpec": {
+      "additionalProperties": false,
+      "properties": {
+        "audience": {
+          "type": "string"
+        },
+        "body": {
+          "type": "string"
+        },
+        "defaults": {
+          "$ref": "#/$defs/NotificationChannels"
+        },
+        "description": {
+          "type": "string"
+        },
+        "filters": {
+          "items": {
+            "$ref": "#/$defs/NotificationFilter"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "group_by": {
+          "type": "string"
+        },
+        "id": {
+          "type": "string"
+        },
+        "link": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "recipients_field": {
+          "type": "string"
+        },
+        "title": {
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "ProcessResources": {
+      "additionalProperties": false,
+      "properties": {
+        "cpu_quota_percent": {
+          "type": "integer"
+        },
+        "cpu_weight": {
+          "type": "integer"
+        },
+        "io_weight": {
+          "type": "integer"
+        },
+        "memory_high_bytes": {
+          "type": "integer"
+        },
+        "memory_max_bytes": {
+          "type": "integer"
+        },
+        "nice": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "type": "object"
+    },
+    "PromptFragment": {
+      "additionalProperties": false,
+      "properties": {
+        "file": {
+          "type": "string"
+        },
+        "position": {
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "ProvidedPermission": {
+      "additionalProperties": false,
+      "properties": {
+        "description": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "resource": {
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "Provides": {
+      "additionalProperties": false,
+      "properties": {
+        "channels": {
+          "items": {
+            "$ref": "#/$defs/ChannelSpec"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "exports": {
+          "items": {
+            "$ref": "#/$defs/AppExport"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "http_routes": {
+          "items": {
+            "$ref": "#/$defs/RouteSpec"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "mcp_tools": {
+          "items": {
+            "$ref": "#/$defs/MCPToolSpec"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "permissions": {
+          "items": {
+            "$ref": "#/$defs/ProvidedPermission"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "prompt_fragments": {
+          "items": {
+            "$ref": "#/$defs/PromptFragment"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "publishes": {
+          "items": {
+            "$ref": "#/$defs/EventDecl"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "resources": {
+          "items": {
+            "$ref": "#/$defs/ResourceDecl"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "skills": {
+          "items": {
+            "$ref": "#/$defs/Skill"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "ui_app": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/UIApp"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "ui_components": {
+          "items": {
+            "$ref": "#/$defs/UIComponent"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "ui_panels": {
+          "items": {
+            "$ref": "#/$defs/UIPanel"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "ui_surfaces": {
+          "items": {
+            "$ref": "#/$defs/UISurface"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "workers": {
+          "items": {
+            "$ref": "#/$defs/WorkerSpec"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        }
+      },
+      "type": "object"
+    },
+    "RequiredAppRef": {
+      "additionalProperties": false,
+      "properties": {
+        "events": {
+          "items": {
+            "type": "string"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "name": {
+          "type": "string"
+        },
+        "optional": {
+          "type": "boolean"
+        },
+        "reason": {
+          "type": "string"
+        },
+        "version": {
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "Requires": {
+      "additionalProperties": false,
+      "properties": {
+        "apps": {
+          "items": {
+            "$ref": "#/$defs/RequiredAppRef"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "binaries": {
+          "items": {
+            "$ref": "#/$defs/BinaryDep"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "contributions": {
+          "items": {
+            "$ref": "#/$defs/ContributionRequirement"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "dynamic_app_calls": {
+          "type": "boolean"
+        },
+        "dynamic_integration_access": {
+          "type": "boolean"
+        },
+        "integrations": {
+          "items": {
+            "$ref": "#/$defs/IntegrationDep"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "mcp_tools_at_runtime": {
+          "items": {
+            "type": "string"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "permissions": {
+          "items": {
+            "enum": [
+              "db.write.app",
+              "net.egress",
+              "platform.connections.read",
+              "platform.connections.write",
+              "platform.connections.execute",
+              "platform.instances.read",
+              "platform.instances.write",
+              "platform.threads.write",
+              "platform.files.references",
+              "platform.mcp.attach",
+              "platform.channels.send",
+              "platform.apps.call",
+              "platform.events.subscribe",
+              "fs.read.shared",
+              "fs.write.shared",
+              "platform.oauth.start",
+              "platform.connections.manage",
+              "platform.connections.manage_owned_credentials",
+              "platform.managed_tenants.manage",
+              "platform.connections.read_public_config",
+              "platform.connections.read_credentials",
+              "platform.realtime.spawn",
+              "platform.environments.read",
+              "platform.environments.call",
+              "platform.environments.manage",
+              "platform.runtimes.read",
+              "platform.runtimes.call",
+              "platform.runtimes.manage",
+              "platform.runtime_catalog.read",
+              "platform.agents.directive.write",
+              "platform.ingress.read",
+              "platform.ingress.write",
+              "platform.dns.read",
+              "platform.dns.write",
+              "platform.backup.read",
+              "platform.backup.restore",
+              "platform.dashboard.connect",
+              "platform.telemetry.read",
+              "platform.telemetry.observe",
+              "platform.runtimes.observe",
+              "platform.templates.read",
+              "platform.contributions.read"
+            ]
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        }
+      },
+      "type": "object"
+    },
+    "ResourceCeilings": {
+      "additionalProperties": false,
+      "properties": {
+        "allowed_dscp": {
+          "items": {
+            "type": "integer"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "concurrency": {
+          "type": "integer"
+        },
+        "cpu_quota_percent": {
+          "type": "integer"
+        },
+        "cpu_weight": {
+          "type": "integer"
+        },
+        "minimum_nice": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "queue": {
+          "type": "integer"
+        },
+        "receive_bytes": {
+          "type": "integer"
+        },
+        "send_bytes": {
+          "type": "integer"
+        }
+      },
+      "type": "object"
+    },
+    "ResourceDecl": {
+      "additionalProperties": false,
+      "properties": {
+        "label": {
+          "type": "string"
+        },
+        "list_endpoint": {
+          "type": "string"
+        },
+        "listing_visibility": {
+          "type": "string"
+        },
+        "matcher": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "picker": {
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "ResourceDeclaration": {
+      "additionalProperties": false,
+      "properties": {
+        "ceilings": {
+          "$ref": "#/$defs/ResourceCeilings"
+        },
+        "defaults": {
+          "$ref": "#/$defs/ResourcePolicy"
+        },
+        "traffic_classes": {
+          "items": {
+            "type": "string"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "workloads": {
+          "items": {
+            "type": "string"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        }
+      },
+      "type": "object"
+    },
+    "ResourceLimits": {
+      "additionalProperties": false,
+      "properties": {
+        "cpu": {
+          "type": "number"
+        },
+        "cpu_limit": {
+          "type": "number"
+        },
+        "memory": {
+          "type": "integer"
+        },
+        "memory_limit": {
+          "type": "integer"
+        }
+      },
+      "type": "object"
+    },
+    "ResourcePolicy": {
+      "additionalProperties": false,
+      "properties": {
+        "network": {
+          "additionalProperties": {
+            "$ref": "#/$defs/SocketPolicy"
+          },
+          "type": [
+            "object",
+            "null"
+          ]
+        },
+        "process": {
+          "$ref": "#/$defs/ProcessResources"
+        },
+        "total_concurrency": {
+          "type": "integer"
+        },
+        "workloads": {
+          "additionalProperties": {
+            "$ref": "#/$defs/WorkloadPolicy"
+          },
+          "type": [
+            "object",
+            "null"
+          ]
+        }
+      },
+      "type": "object"
+    },
+    "RouteSpec": {
+      "additionalProperties": false,
+      "properties": {
+        "method": {
+          "type": "string"
+        },
+        "no_auth": {
+          "type": "boolean"
+        },
+        "prefix": {
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "Runtime": {
+      "additionalProperties": false,
+      "properties": {
+        "activation_strategy": {
+          "enum": [
+            "",
+            "auto",
+            "exclusive"
+          ]
+        },
+        "artifacts": {
+          "additionalProperties": {
+            "additionalProperties": false,
+            "properties": {
+              "sha256": {
+                "pattern": "^[a-fA-F0-9]{64}$",
+                "type": "string"
+              },
+              "url": {
+                "minLength": 1,
+                "type": "string"
+              }
+            },
+            "required": [
+              "url",
+              "sha256"
+            ],
+            "type": "object"
+          },
+          "propertyNames": {
+            "pattern": "^[^/\\\\ .-]+-[^/\\\\ .-]+$"
+          },
+          "type": [
+            "object",
+            "null"
+          ]
+        },
+        "binaries": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "type": [
+            "object",
+            "null"
+          ]
+        },
+        "bind_host": {
+          "type": "string"
+        },
+        "bundle": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/BundleSpec"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "database_upgrade": {
+          "enum": [
+            "",
+            "backward_compatible",
+            "requires_restore"
+          ]
+        },
+        "env": {
+          "additionalProperties": {
+            "$ref": "#/$defs/EnvFrom"
+          },
+          "type": [
+            "object",
+            "null"
+          ]
+        },
+        "health_check": {
+          "type": "string"
+        },
+        "image": {
+          "type": "string"
+        },
+        "ingress": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/RuntimeIngress"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "kind": {
+          "enum": [
+            "",
+            "service",
+            "source",
+            "static"
+          ]
+        },
+        "package": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/RuntimePackage"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "port": {
+          "type": "integer"
+        },
+        "ports": {
+          "items": {
+            "$ref": "#/$defs/RuntimePort"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "resource_policy": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ResourceDeclaration"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "resources": {
+          "$ref": "#/$defs/ResourceLimits"
+        },
+        "source": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SourceSpec"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "startup_timeout_seconds": {
+          "maximum": 3600,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "static_dir": {
+          "type": "string"
+        },
+        "storage": {
+          "items": {
+            "$ref": "#/$defs/StorageSpec"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        }
+      },
+      "type": "object"
+    },
+    "RuntimeAppCapabilities": {
+      "additionalProperties": false,
+      "properties": {
+        "drain": {
+          "type": "boolean"
+        },
+        "passive_start": {
+          "type": "boolean"
+        },
+        "replica_safe": {
+          "type": "boolean"
+        },
+        "routing": {
+          "type": "string"
+        },
+        "worker_coordination": {
+          "type": "boolean"
+        }
+      },
+      "type": "object"
+    },
+    "RuntimeBuildCommand": {
+      "additionalProperties": false,
+      "properties": {
+        "args": {
+          "items": {
+            "type": "string"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "dir": {
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "RuntimeIngress": {
+      "additionalProperties": false,
+      "properties": {
+        "browser_path": {
+          "type": "string"
+        },
+        "endpoints": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "type": [
+            "object",
+            "null"
+          ]
+        },
+        "routes": {
+          "items": {
+            "$ref": "#/$defs/RuntimeIngressRoute"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        }
+      },
+      "type": "object"
+    },
+    "RuntimeIngressRoute": {
+      "additionalProperties": false,
+      "properties": {
+        "path": {
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "RuntimePackage": {
+      "additionalProperties": false,
+      "properties": {
+        "abi": {
+          "type": "string"
+        },
+        "app_capabilities": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/RuntimeAppCapabilities"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "build": {
+          "items": {
+            "$ref": "#/$defs/RuntimeBuildCommand"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "cgo": {
+          "type": "boolean"
+        },
+        "files": {
+          "items": {
+            "type": "string"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "system_libraries": {
+          "items": {
+            "type": "string"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        }
+      },
+      "type": "object"
+    },
+    "RuntimePort": {
+      "additionalProperties": false,
+      "properties": {
+        "container_port": {
+          "type": "integer"
+        },
+        "host_port": {
+          "type": "integer"
+        },
+        "name": {
+          "type": "string"
+        },
+        "protocol": {
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "SetupConfigure": {
+      "additionalProperties": false,
+      "properties": {
+        "entry": {
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "SetupFeature": {
+      "additionalProperties": false,
+      "properties": {
+        "configure": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SetupConfigure"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "default": {
+          "type": "boolean"
+        },
+        "description": {
+          "type": "string"
+        },
+        "fields": {
+          "items": {
+            "type": "string"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "id": {
+          "type": "string"
+        },
+        "label": {
+          "type": "string"
+        },
+        "readiness": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SetupReadiness"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "requires": {
+          "items": {
+            "$ref": "#/$defs/SetupRequirement"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        }
+      },
+      "type": "object"
+    },
+    "SetupReadiness": {
+      "additionalProperties": false,
+      "properties": {
+        "route": {
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "SetupRequirement": {
+      "additionalProperties": false,
+      "properties": {
+        "feature": {
+          "type": "string"
+        },
+        "role": {
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "SetupSpec": {
+      "additionalProperties": false,
+      "properties": {
+        "features": {
+          "items": {
+            "$ref": "#/$defs/SetupFeature"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        }
+      },
+      "type": "object"
+    },
+    "Skill": {
+      "additionalProperties": false,
+      "properties": {
+        "body": {
+          "type": "string"
+        },
+        "body_file": {
+          "type": "string"
+        },
+        "command": {
+          "type": "string"
+        },
+        "description": {
+          "type": "string"
+        },
+        "metadata": {
+          "additionalProperties": {},
+          "type": [
+            "object",
+            "null"
+          ]
+        },
+        "name": {
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "SocketPolicy": {
+      "additionalProperties": false,
+      "properties": {
+        "dscp": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "receive_bytes": {
+          "type": "integer"
+        },
+        "send_bytes": {
+          "type": "integer"
+        }
+      },
+      "type": "object"
+    },
+    "SourceSpec": {
+      "additionalProperties": false,
+      "properties": {
+        "entry": {
+          "type": "string"
+        },
+        "ref": {
+          "type": "string"
+        },
+        "repo": {
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "StorageSpec": {
+      "additionalProperties": false,
+      "properties": {
+        "mount_path": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "UIApp": {
+      "additionalProperties": false,
+      "properties": {
+        "auth": {
+          "type": "string"
+        },
+        "branding": {
+          "$ref": "#/$defs/Branding"
+        },
+        "domain_template": {
+          "type": "string"
+        },
+        "mount_path": {
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "UIComponent": {
+      "additionalProperties": false,
+      "properties": {
+        "dashboard_scopes": {
+          "items": {
+            "type": "string"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "default_size": {
+          "type": "string"
+        },
+        "default_width": {
+          "type": "integer"
+        },
+        "description": {
+          "type": "string"
+        },
+        "entry": {
+          "type": "string"
+        },
+        "host_ui": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/HostUI"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "label": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "native": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/NativeUIRenderer"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "permissions": {
+          "items": {
+            "type": "string"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "preview_props": {
+          "additionalProperties": {},
+          "type": [
+            "object",
+            "null"
+          ]
+        },
+        "props_schema": {
+          "additionalProperties": {},
+          "type": [
+            "object",
+            "null"
+          ]
+        },
+        "recommended_views": {
+          "items": {
+            "type": "string"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "refresh_topics": {
+          "items": {
+            "type": "string"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "resource_types": {
+          "items": {
+            "type": "string"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "settings_schema": {
+          "additionalProperties": {},
+          "type": [
+            "object",
+            "null"
+          ]
+        },
+        "settings_ui": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/WidgetSettingsUI"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "slots": {
+          "items": {
+            "type": "string"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "suggested": {
+          "type": "boolean"
+        },
+        "supported_sizes": {
+          "items": {
+            "type": "string"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "visibility": {
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "UIPanel": {
+      "additionalProperties": false,
+      "properties": {
+        "entry": {
+          "type": "string"
+        },
+        "host_ui": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/HostUI"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "icon": {
+          "type": "string"
+        },
+        "label": {
+          "type": "string"
+        },
+        "slot": {
+          "type": "string"
+        },
+        "suggested": {
+          "type": "boolean"
+        }
+      },
+      "type": "object"
+    },
+    "UISurface": {
+      "additionalProperties": false,
+      "properties": {
+        "entry": {
+          "type": "string"
+        },
+        "host_ui": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/HostUI"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "icon": {
+          "type": "string"
+        },
+        "id": {
+          "type": "string"
+        },
+        "label": {
+          "type": "string"
+        },
+        "schema": {
+          "type": "string"
+        },
+        "slots": {
+          "items": {
+            "type": "string"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        }
+      },
+      "type": "object"
+    },
+    "WidgetSettingsDiscovery": {
+      "additionalProperties": false,
+      "properties": {
+        "ConfigFieldDiscovery": {
+          "$ref": "#/$defs/ConfigFieldDiscovery"
+        },
+        "query": {
+          "additionalProperties": {},
+          "type": [
+            "object",
+            "null"
+          ]
+        }
+      },
+      "type": "object"
+    },
+    "WidgetSettingsField": {
+      "additionalProperties": false,
+      "properties": {
+        "discovery": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/WidgetSettingsDiscovery"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "type": "object"
+    },
+    "WidgetSettingsStep": {
+      "additionalProperties": false,
+      "properties": {
+        "fields": {
+          "items": {
+            "type": "string"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "id": {
+          "type": "string"
+        },
+        "title": {
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "WidgetSettingsUI": {
+      "additionalProperties": false,
+      "properties": {
+        "advanced": {
+          "items": {
+            "type": "string"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "fields": {
+          "additionalProperties": {
+            "$ref": "#/$defs/WidgetSettingsField"
+          },
+          "type": [
+            "object",
+            "null"
+          ]
+        },
+        "order": {
+          "items": {
+            "type": "string"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "preview": {
+          "type": "boolean"
+        },
+        "steps": {
+          "items": {
+            "$ref": "#/$defs/WidgetSettingsStep"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        }
+      },
+      "type": "object"
+    },
+    "WorkerSpec": {
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "schedule": {
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "WorkloadPolicy": {
+      "additionalProperties": false,
+      "properties": {
+        "concurrency": {
+          "type": "integer"
+        },
+        "queue": {
+          "type": "integer"
+        },
+        "weight": {
+          "type": "integer"
+        }
+      },
+      "type": "object"
+    }
+  },
+  "$id": "https://apteva.com/schemas/apteva-app-v1.schema.json",
+  "$ref": "#/$defs/Manifest",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "description": "Generated structural schema. Declared object fields match the SDK; free-form maps remain open. Run apteva-app-contract validate for authoritative semantic validation and defaults.",
+  "title": "Apteva app manifest v1"
+}
