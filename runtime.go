@@ -180,13 +180,17 @@ type RuntimeAgentDraft struct {
 }
 
 type RuntimeAgentSpawnRequest struct {
-	SourceAgentID int64              `json:"source_agent_id,omitempty"`
-	Draft         *RuntimeAgentDraft `json:"draft,omitempty"`
-	Directive     string             `json:"directive,omitempty"`
-	Alias         string             `json:"alias,omitempty"`
-	StartPaused   bool               `json:"start_paused,omitempty"`
-	Provider      string             `json:"provider,omitempty"`
-	Model         string             `json:"model,omitempty"`
+	// Omitted scope preserves instance-wide startup pause. Thread scope pauses
+	// only StartPausedThreadID; delegated workers retain the instance policy.
+	StartPausedScope    string             `json:"start_paused_scope,omitempty"`
+	StartPausedThreadID string             `json:"start_paused_thread_id,omitempty"`
+	SourceAgentID       int64              `json:"source_agent_id,omitempty"`
+	Draft               *RuntimeAgentDraft `json:"draft,omitempty"`
+	Directive           string             `json:"directive,omitempty"`
+	Alias               string             `json:"alias,omitempty"`
+	StartPaused         bool               `json:"start_paused,omitempty"`
+	Provider            string             `json:"provider,omitempty"`
+	Model               string             `json:"model,omitempty"`
 }
 
 type RuntimeAgent struct {
