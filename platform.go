@@ -72,9 +72,9 @@ func newHTTPPlatformClient(baseURL, token string) PlatformClient {
 	}
 	return &httpPlatformClient{
 		baseURL: baseURL, token: token,
-		client:       &http.Client{Timeout: 30 * time.Second},
-		slowClient:   &http.Client{Timeout: 10 * time.Minute},
-		streamClient: &http.Client{},
+		client:       &http.Client{Timeout: 30 * time.Second, Transport: gatewayTransport()},
+		slowClient:   &http.Client{Timeout: 10 * time.Minute, Transport: gatewayTransport()},
+		streamClient: &http.Client{Transport: gatewayTransport()},
 	}
 }
 
