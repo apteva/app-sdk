@@ -1574,6 +1574,30 @@ type OAuthStartResult struct {
 	ExpiresAt    string `json:"expires_at"`
 }
 
+// OAuthReauthRequest asks the user to re-authorize one existing connection,
+// optionally adding scopes the integration declares in oauth2.optional_scopes.
+//
+// The connection must be one the calling install may already execute
+// integration tools against; the install needs platform.oauth.start (and
+// platform.connections.execute, as for tool execution). After the user
+// completes the dance the platform updates THAT connection in place and 302s
+// the browser to ReturnURL with ?conn_id=<id>&status=ok.
+type OAuthReauthRequest struct {
+	ConnectionID   int64    `json:"connection_id"`
+	OptionalScopes []string `json:"optional_scopes,omitempty"`
+	ReturnURL      string   `json:"return_url"`
+	// ProjectID — only consulted for global installs relying on the
+	// dynamic-integration bypass, mirroring _project_id on integration tool
+	// execution. projectScopedClient fills it automatically.
+	ProjectID string `json:"project_id,omitempty"`
+}
+
+// OAuthReauthClient is implemented by the platform client on servers that
+// support per-connection re-authorization. Type-assert ctx.PlatformAPI().
+type OAuthReauthClient interface {
+	ReauthOAuth(req OAuthReauthRequest) (*OAuthStartResult, error)
+}
+
 // RealtimeTurnDetection configures provider-neutral realtime turn taking.
 // Providers map the fields they support to their native session settings.
 // A nil config preserves the provider's default behavior.

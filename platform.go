@@ -607,6 +607,20 @@ func (c *httpPlatformClient) StartOAuth(req OAuthStartRequest) (*OAuthStartResul
 	return &out, nil
 }
 
+var (
+	_ OAuthReauthClient = (*httpPlatformClient)(nil)
+	_ OAuthReauthClient = (*projectScopedClient)(nil)
+)
+
+// ReauthOAuth implements OAuthReauthClient.
+func (c *httpPlatformClient) ReauthOAuth(req OAuthReauthRequest) (*OAuthStartResult, error) {
+	var out OAuthStartResult
+	if err := c.post("/api/apps/callback/oauth/reauth", req, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
 func (c *httpPlatformClient) DisconnectConnection(connID int64) error {
 	return c.post("/api/apps/callback/connections/"+strconv.FormatInt(connID, 10)+"/disconnect", nil, nil)
 }
@@ -1235,6 +1249,16 @@ func (p *projectScopedClient) StartOAuth(req OAuthStartRequest) (*OAuthStartResu
 		req.ProjectID = p.projectID
 	}
 	return p.inner.StartOAuth(req)
+}
+func (p *projectScopedClient) ReauthOAuth(req OAuthReauthRequest) (*OAuthStartResult, error) {
+	client, ok := p.inner.(OAuthReauthClient)
+	if !ok {
+		return nil, errors.New("oauth reauth API unavailable")
+	}
+	if req.ProjectID == "" {
+		req.ProjectID = p.projectID
+	}
+	return client.ReauthOAuth(req)
 }
 func (p *projectScopedClient) DisconnectConnection(connID int64) error {
 	return p.inner.DisconnectConnection(connID)

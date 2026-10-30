@@ -97,6 +97,12 @@ func (BasePlatformClient) StartOAuth(sdk.OAuthStartRequest) (*sdk.OAuthStartResu
 	return nil, ErrNotImplemented
 }
 
+// ReauthOAuth satisfies sdk.OAuthReauthClient so app tests can override it
+// on an embedding stub; the base implementation is not implemented.
+func (BasePlatformClient) ReauthOAuth(sdk.OAuthReauthRequest) (*sdk.OAuthStartResult, error) {
+	return nil, ErrNotImplemented
+}
+
 func (BasePlatformClient) DisconnectConnection(int64) error {
 	return ErrNotImplemented
 }
