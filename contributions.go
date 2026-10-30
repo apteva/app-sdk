@@ -18,7 +18,7 @@ const (
 )
 
 var (
-	exportContractPattern = regexp.MustCompile(`^[a-z][a-z0-9.-]*/[a-z][a-z0-9-]*/v[1-9][0-9]*$`)
+	exportContractPattern = regexp.MustCompile(`^[a-z][a-z0-9-]*(\.[a-z][a-z0-9-]*)+/v[1-9][0-9]*$`)
 	resourceTypePattern   = regexp.MustCompile(`^[a-z][a-z0-9_-]*(\.[a-z][a-z0-9_-]*)+$`)
 )
 
@@ -227,7 +227,7 @@ func validateContributions(m *Manifest) error {
 		}
 		seen[export.ID] = true
 		if !exportContractPattern.MatchString(export.Contract) {
-			return fmt.Errorf("%s.contract must be namespace/name/vN", prefix)
+			return fmt.Errorf("%s.contract must be namespace.name/vN", prefix)
 		}
 		if strings.TrimSpace(export.Label) == "" {
 			return fmt.Errorf("%s.label required", prefix)
@@ -305,7 +305,7 @@ func validateContributionSelector(kind, contract, resourceType, slot string) err
 	switch kind {
 	case ContributionKindExport:
 		if !exportContractPattern.MatchString(contract) || resourceType != "" || slot != "" {
-			return errors.New("export selector requires contract only (namespace/name/vN)")
+			return errors.New("export selector requires contract only (namespace.name/vN)")
 		}
 	case ContributionKindComponent:
 		if contract != "" || !knownComponentContributionSlot(slot) || (resourceType != "" && !resourceTypePattern.MatchString(resourceType)) {

@@ -49,7 +49,7 @@ provides:
 ```
 
 `AppExport` is GET-only. IDs are unique within exports; contribution identity is
-`install_id + kind + id`. Contracts use `namespace/name/vN`, with exact version
+`install_id + kind + id`. Contracts use `namespace.name/vN` (for example `apteva.summary/v1`), with exact version
 matching. Custom namespaces are allowed; consumers need their corresponding
 parser. Unknown versions must produce a fallback rather than guessed data.
 
