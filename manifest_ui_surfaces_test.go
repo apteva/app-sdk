@@ -164,6 +164,7 @@ func TestManifestRejectsInvalidUIComponentPlacement(t *testing.T) {
 		"unknown visibility":           "slots: [dashboard.home]\n      visibility: everyone",
 		"unsupported size":             "slots: [dashboard.home]\n      supported_sizes: [tiny]",
 		"default outside supported":    "slots: [dashboard.home]\n      supported_sizes: [half]\n      default_size: full",
+		"unsupported default size":     "slots: [dashboard.home]\n      default_size: third",
 		"unsupported dashboard scope":  "slots: [dashboard.home]\n      dashboard_scopes: [workspace]",
 		"dashboard scope outside home": "slots: [dashboard.build]\n      dashboard_scopes: [global]",
 	} {
@@ -238,5 +239,27 @@ provides:
 				t.Fatal("expected validation error")
 			}
 		})
+	}
+}
+
+func TestManifestAcceptsQuarterWidgetSizes(t *testing.T) {
+	manifest, err := ParseManifest([]byte(`
+schema: apteva-app/v1
+name: widget-test
+version: 1.0.0
+provides:
+  ui_components:
+    - name: overview
+      entry: /ui/Overview.mjs
+      slots: [dashboard.home]
+      supported_sizes: [quarter, half, three-quarter, full]
+      default_size: quarter
+`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	component := manifest.Provides.UIComponents[0]
+	if len(component.SupportedSizes) != 4 || component.DefaultSize != "quarter" {
+		t.Fatalf("component=%+v", component)
 	}
 }
