@@ -24,6 +24,12 @@ provides:
       refresh_topics: [work.updated]
 ```
 
+`supported_sizes` lists widths in quarters of the canvas: `quarter`, `half`,
+`three-quarter`, and `full`. A widget that supports both `half` and `full` is
+also offered at `three-quarter`; `quarter` is only offered when declared, so
+declare it only if the widget stays readable that narrow. Read the current
+width from the `widgetSize` prop.
+
 `recommended_views` is optional and accepts `personal`, `business`, and
 `developer`. With no recommendation, a suggested component is eligible for
 all presets. Recommendations determine initial placement and the gallery's

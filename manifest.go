@@ -453,9 +453,11 @@ type UIComponent struct {
 	// preserves the legacy behaviour of refreshing after any event from the app.
 	RefreshTopics []string `yaml:"refresh_topics,omitempty" json:"refresh_topics,omitempty"`
 	// SupportedSizes declares the semantic sizes the host may offer for a
-	// dashboard widget. Current portable values are "half" and "full". The
-	// host remains responsible for mapping those values onto its responsive
-	// layout; apps must adapt their content using the injected widgetSize prop.
+	// dashboard widget, in quarters of the canvas width: "quarter", "half",
+	// "three-quarter" and "full". The host remains responsible for mapping
+	// those values onto its responsive layout and may offer "three-quarter"
+	// to a widget that supports both "half" and "full"; apps must adapt their
+	// content using the injected widgetSize prop.
 	SupportedSizes []string `yaml:"supported_sizes,omitempty" json:"supported_sizes,omitempty"`
 	DefaultSize    string   `yaml:"default_size,omitempty" json:"default_size,omitempty"`
 	// DefaultWidth is the legacy portable grid hint. New apps should use
@@ -1368,7 +1370,7 @@ func validateUIComponents(components []UIComponent) error {
 		}
 		sizeSeen := map[string]bool{}
 		for _, size := range component.SupportedSizes {
-			if size != "half" && size != "full" {
+			if !validWidgetSize(size) {
 				return fmt.Errorf("%s.supported_sizes contains unsupported size %q", prefix, size)
 			}
 			if sizeSeen[size] {
@@ -1377,7 +1379,7 @@ func validateUIComponents(components []UIComponent) error {
 			sizeSeen[size] = true
 		}
 		if component.DefaultSize != "" {
-			if component.DefaultSize != "half" && component.DefaultSize != "full" {
+			if !validWidgetSize(component.DefaultSize) {
 				return fmt.Errorf("%s.default_size %q unsupported", prefix, component.DefaultSize)
 			}
 			if len(sizeSeen) > 0 && !sizeSeen[component.DefaultSize] {
@@ -1630,6 +1632,16 @@ func knownPermission(p Permission) bool {
 		if k == p {
 			return true
 		}
+	}
+	return false
+}
+
+// validWidgetSize reports whether size is one of the portable dashboard
+// widget widths.
+func validWidgetSize(size string) bool {
+	switch size {
+	case "quarter", "half", "three-quarter", "full":
+		return true
 	}
 	return false
 }
