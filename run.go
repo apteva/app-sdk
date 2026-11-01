@@ -757,8 +757,8 @@ func (h *mcpHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			entry := map[string]any{
 				"name": t.Name, "description": t.Description, "inputSchema": t.InputSchema,
 			}
-			if len(t.Annotations) > 0 {
-				entry["annotations"] = t.Annotations
+			if annotations := h.toolAnnotations(t); len(annotations) > 0 {
+				entry["annotations"] = annotations
 			}
 			meta := h.toolMeta(t)
 			if len(meta) > 0 {
@@ -882,6 +882,22 @@ func (h *mcpHandler) toolMeta(tool Tool) map[string]any {
 			}
 		}
 	}
+	return merged
+}
+
+// toolAnnotations is the tool's own annotations, with readOnlyHint set when
+// the manifest declares the tool read_only. The manifest wins so the listing
+// and the platform, which reads the installed manifest, always agree.
+func (h *mcpHandler) toolAnnotations(tool Tool) map[string]any {
+	spec := h.toolSpec(tool.Name)
+	if spec == nil || !spec.ReadOnly {
+		return tool.Annotations
+	}
+	merged := make(map[string]any, len(tool.Annotations)+1)
+	for key, value := range tool.Annotations {
+		merged[key] = value
+	}
+	merged["readOnlyHint"] = true
 	return merged
 }
 

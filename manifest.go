@@ -558,6 +558,10 @@ type MCPToolSpec struct {
 	// using the resource type's Matcher. Empty = handler-side
 	// enforcement (gate skipped, app filters returns itself).
 	ResourceFrom string `yaml:"resource_from,omitempty" json:"resource_from,omitempty"`
+	// ReadOnly declares that the tool never changes state, whatever its
+	// arguments. The SDK lists it with the standard MCP readOnlyHint, and the
+	// platform may then run it in several projects with one call.
+	ReadOnly bool `yaml:"read_only,omitempty" json:"read_only,omitempty"`
 	// AsyncResult declares that this tool returns an identifier for
 	// asynchronous app work. The platform may use this metadata to create
 	// a short-lived notification subscription for the caller.
@@ -1597,6 +1601,9 @@ func validateProvidedPermissions(p *Provides) error {
 		t := &p.MCPTools[i]
 		if err := ValidateAsyncResultSpec(t.AsyncResult); err != nil {
 			return fmt.Errorf("provides.mcp_tools[%q].async_result: %w", t.Name, err)
+		}
+		if t.ReadOnly && t.AsyncResult != nil {
+			return fmt.Errorf("provides.mcp_tools[%q]: read_only tools cannot declare async_result, which starts app work", t.Name)
 		}
 		switch t.Exposure {
 		case "", ToolExposurePublic, ToolExposureAppOnly:

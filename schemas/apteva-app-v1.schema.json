@@ -516,6 +516,9 @@
         "name": {
           "type": "string"
         },
+        "read_only": {
+          "type": "boolean"
+        },
         "requires": {
           "type": "string"
         },
