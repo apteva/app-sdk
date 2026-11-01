@@ -65,3 +65,88 @@ func TestMCPToolAnnotationsAreExposedWithoutChangingLegacyTools(t *testing.T) {
 		t.Fatal("standard annotations must not be nested in _meta")
 	}
 }
+
+type readOnlyManifestApp struct{ metaTestApp }
+
+func (*readOnlyManifestApp) Manifest() Manifest {
+	return Manifest{Name: "read-only-test", Version: "0.0.0", Provides: Provides{
+		MCPTools: []MCPToolSpec{
+			{Name: "lookup", ReadOnly: true},
+			{Name: "report", ReadOnly: true},
+			{Name: "update"},
+		},
+	}}
+}
+
+func (*readOnlyManifestApp) MCPTools() []Tool {
+	return []Tool{
+		{Name: "lookup"},
+		{Name: "report", Annotations: map[string]any{"readOnlyHint": false, "openWorldHint": false}},
+		{Name: "update"},
+	}
+}
+
+func TestManifestReadOnlyListsReadOnlyHint(t *testing.T) {
+	app := &readOnlyManifestApp{}
+	manifest := app.Manifest()
+	h := newMCPHandler(app, &AppCtx{manifest: &manifest})
+	req := httptest.NewRequest(http.MethodPost, "/mcp", strings.NewReader(
+		`{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}`))
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	var out struct {
+		Result struct {
+			Tools []map[string]any `json:"tools"`
+		} `json:"result"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &out); err != nil {
+		t.Fatal(err)
+	}
+	listed := map[string]any{}
+	for _, tool := range out.Result.Tools {
+		listed[tool["name"].(string)] = tool["annotations"]
+	}
+	want := map[string]any{
+		"lookup": map[string]any{"readOnlyHint": true},
+		// The manifest wins, so the listing matches what the platform reads.
+		"report": map[string]any{"readOnlyHint": true, "openWorldHint": false},
+		"update": nil,
+	}
+	if !reflect.DeepEqual(listed, want) {
+		t.Fatalf("annotations=%#v, want %#v", listed, want)
+	}
+	if app.MCPTools()[1].Annotations["readOnlyHint"] != false {
+		t.Fatal("listing changed the tool's own annotations")
+	}
+}
+
+func TestManifestReadOnlyCannotStartAsyncWork(t *testing.T) {
+	const base = `schema: apteva-app/v1
+name: read-only-test
+display_name: Read Only Test
+version: 1.0.0
+scopes: [project]
+runtime:
+  kind: source
+  source:
+    repo: github.com/apteva/apps
+    entry: mcp/read-only-test
+  port: 8080
+provides:
+  mcp_tools:
+    - name: export
+      description: Export rows.
+      read_only: true
+`
+	manifest, err := ParseManifest([]byte(base))
+	if err != nil {
+		t.Fatalf("ParseManifest: %v", err)
+	}
+	if !manifest.Provides.MCPTools[0].ReadOnly {
+		t.Fatal("read_only not parsed")
+	}
+	async := base + "      async_result:\n        id_field: job_id\n"
+	if _, err := ParseManifest([]byte(async)); err == nil || !strings.Contains(err.Error(), "read_only tools cannot declare async_result") {
+		t.Fatalf("read_only async tool accepted: %v", err)
+	}
+}

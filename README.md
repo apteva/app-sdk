@@ -115,6 +115,23 @@ query that does not change state. The SDK emits these under `annotations` in
 their existing response shape. These hints describe behavior, not execution
 permissions; only annotate a tool as read-only if its handler has no writes.
 
+To declare a read-only tool once, set `read_only: true` on it in `apteva.yaml`:
+
+```yaml
+provides:
+  mcp_tools:
+    - name: invoices_search
+      description: Filter invoices.
+      read_only: true
+```
+
+The SDK then lists the tool with `readOnlyHint: true`, whatever `Tool.Annotations`
+says, and the platform reads the same flag from the installed manifest. An agent
+whose grant covers the tool in several projects can then run it in all of them
+with one call (`project_id: "*"`), getting one entry per project. Mark a tool
+only if no combination of its arguments writes anything; `read_only` cannot be
+combined with `async_result`.
+
 See [CONTRIBUTIONS.md](CONTRIBUTIONS.md) for generic discovery, shared data
 contracts, and resource cards in existing `chat.message_attachment` components.
 The SDK contract is available; discovery/proxy endpoints require server support.
