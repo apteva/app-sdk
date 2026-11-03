@@ -1530,6 +1530,15 @@
             "null"
           ]
         },
+        "host_profiles": {
+          "items": {
+            "type": "string"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
         "system_libraries": {
           "items": {
             "type": "string"

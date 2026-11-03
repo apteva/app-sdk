@@ -15,7 +15,23 @@ type RuntimePackage struct {
 	CGO             bool                    `yaml:"cgo,omitempty" json:"cgo,omitempty"`
 	ABI             string                  `yaml:"abi,omitempty" json:"abi,omitempty"`
 	SystemLibraries []string                `yaml:"system_libraries,omitempty" json:"system_libraries,omitempty"`
+	// HostProfiles names backend-defined host setups the release needs on a
+	// remote target (for example chrome-headless). A backend installs a
+	// missing profile only when the placement approves it.
+	HostProfiles []string `yaml:"host_profiles,omitempty" json:"host_profiles,omitempty"`
 }
+
+// HostProfileChromeHeadless is the system libraries and base fonts headless
+// Chrome needs to render pages.
+const HostProfileChromeHeadless = "chrome-headless"
+
+// Host profile states reported by RuntimeTargetInfo.HostProfiles.
+const (
+	HostProfilePresent     = "present"     // already satisfied on the target
+	HostProfileInstallable = "installable" // missing; the backend can install it once approved
+	HostProfileUnsupported = "unsupported" // missing; the backend cannot install it on this target
+)
+
 type RuntimeBuildCommand struct {
 	Dir  string   `yaml:"dir,omitempty" json:"dir,omitempty"`
 	Args []string `yaml:"args" json:"args"`
@@ -50,7 +66,10 @@ type RuntimeTargetInfo struct {
 	HostKey             string               `json:"host_key"`
 	ABI                 string               `json:"abi,omitempty"`
 	SystemLibraries     []string             `json:"system_libraries,omitempty"`
-	Formats             []string             `json:"formats"`
+	// HostProfiles maps each profile the backend knows to its state on this
+	// target. Absent from backends that predate host profiles.
+	HostProfiles map[string]string `json:"host_profiles,omitempty"`
+	Formats      []string          `json:"formats"`
 }
 
 // RuntimeStateTransferPolicy bounds a gzip/tar persistent-state transfer in
@@ -81,6 +100,33 @@ func runtimeReleasePath(p string) bool {
 	}
 	return true
 }
+
+// ValidateHostProfiles checks a list of host profile names: at most 8 distinct
+// lowercase names of letters, digits and hyphens.
+func ValidateHostProfiles(names []string) error {
+	if len(names) > 8 {
+		return fmt.Errorf("too many host profiles")
+	}
+	seen := map[string]bool{}
+	for _, name := range names {
+		if !hostProfileName(name) || seen[name] {
+			return fmt.Errorf("invalid host profile %q", name)
+		}
+		seen[name] = true
+	}
+	return nil
+}
+func hostProfileName(v string) bool {
+	if len(v) == 0 || len(v) > 64 || v[0] == '-' || v[len(v)-1] == '-' {
+		return false
+	}
+	for _, c := range v {
+		if !(c >= 'a' && c <= 'z' || c >= '0' && c <= '9' || c == '-') {
+			return false
+		}
+	}
+	return true
+}
 func ValidateRuntimePackage(p *RuntimePackage) error {
 	if p == nil {
 		return nil
@@ -88,8 +134,11 @@ func ValidateRuntimePackage(p *RuntimePackage) error {
 	if p.ABI != "" && p.ABI != "gnu" && p.ABI != "musl" {
 		return fmt.Errorf("runtime.package: unsupported ABI")
 	}
-	if len(p.Files) > 128 || len(p.Build) > 16 || len(p.SystemLibraries) > 32 {
+	if len(p.Files) > 128 || len(p.Build) > 16 || len(p.SystemLibraries) > 32 || len(p.HostProfiles) > 8 {
 		return fmt.Errorf("runtime.package exceeds limits")
+	}
+	if err := ValidateHostProfiles(p.HostProfiles); err != nil {
+		return fmt.Errorf("runtime.package: %w", err)
 	}
 	for _, f := range p.Files {
 		if !runtimeReleasePath(f) {
