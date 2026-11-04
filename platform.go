@@ -1017,9 +1017,15 @@ func (c *httpPlatformClient) SpawnThread(req ThreadSpawnRequest) (*ThreadSpawnRe
 	if strings.TrimSpace(req.ThreadID) == "" {
 		return nil, errors.New("SpawnThread: thread_id required")
 	}
+	req.Provider = strings.TrimSpace(req.Provider)
+	if req.Provider != "" {
+		if err := c.requireThreadProviderSelection(); err != nil {
+			return nil, err
+		}
+	}
 	var out ThreadSpawnResult
 	if err := c.post("/api/apps/callback/threads/spawn", req, &out); err != nil {
-		return nil, err
+		return nil, threadProviderRequestError(req.Provider, err)
 	}
 	return &out, nil
 }
@@ -1031,9 +1037,15 @@ func (c *httpPlatformClient) EnsureThread(req ThreadEnsureRequest) (*ThreadEnsur
 	if strings.TrimSpace(req.ThreadID) == "" {
 		return nil, errors.New("EnsureThread: thread_id required")
 	}
+	req.Provider = strings.TrimSpace(req.Provider)
+	if req.Provider != "" {
+		if err := c.requireThreadProviderSelection(); err != nil {
+			return nil, err
+		}
+	}
 	var out ThreadEnsureResult
 	if err := c.post("/api/apps/callback/threads/ensure", req, &out); err != nil {
-		return nil, err
+		return nil, threadProviderRequestError(req.Provider, err)
 	}
 	return &out, nil
 }
@@ -1586,5 +1598,16 @@ func (c *httpPlatformClient) addAuth(req *http.Request) {
 
 func (c *httpPlatformClient) platformErr(resp *http.Response) error {
 	body, _ := io.ReadAll(resp.Body)
-	return fmt.Errorf("platform %s: http %d: %s", resp.Request.URL.Path, resp.StatusCode, string(body))
+	return &platformHTTPError{path: resp.Request.URL.Path, status: resp.StatusCode, body: string(body)}
+}
+
+// platformHTTPError lets a client method act on the status of a failed request.
+type platformHTTPError struct {
+	path   string
+	status int
+	body   string
+}
+
+func (e *platformHTTPError) Error() string {
+	return fmt.Sprintf("platform %s: http %d: %s", e.path, e.status, e.body)
 }

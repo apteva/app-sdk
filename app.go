@@ -1328,6 +1328,9 @@ type PlatformInfo struct {
 	// FileReferences advertises the optional durable attachment contract.
 	FileReferences        string          `json:"file_references,omitempty"`
 	FileReferenceDispatch map[string]bool `json:"file_reference_dispatch,omitempty"`
+	// ThreadProviderSelection is ThreadProviderSelectionVersion on servers that
+	// accept ThreadSpawnRequest.Provider. Older servers silently ignore it.
+	ThreadProviderSelection int `json:"thread_provider_selection,omitempty"`
 	// PublicURL is the apteva-server's externally-reachable base URL.
 	// Used by sidecars to construct webhooks, signed URLs handed to
 	// third parties, etc. May be "" on local-only installs that
@@ -2116,18 +2119,27 @@ type ThreadSpawnRequest struct {
 	// Global agents such as platform assistants use it to keep app tool calls
 	// scoped to the project that originated the thread. The platform, not the
 	// model or tool arguments, remains authoritative for this value.
-	ProjectID       string        `json:"project_id,omitempty"`
-	DirectiveSuffix string        `json:"directive_suffix,omitempty"`
-	Tools           []string      `json:"tools,omitempty"`
-	MCP             []string      `json:"mcp,omitempty"`
-	Ephemeral       bool          `json:"ephemeral,omitempty"`
-	Events          []ThreadEvent `json:"events,omitempty"`
+	ProjectID       string `json:"project_id,omitempty"`
+	DirectiveSuffix string `json:"directive_suffix,omitempty"`
+	// Provider optionally pins this thread to a provider from the target
+	// agent's pool, such as "anthropic" or "openai-codex". Omitted, the thread
+	// follows its parent and an existing thread keeps what it has. See
+	// ThreadProviderStatus for what a pin guarantees, and the ErrThreadProvider
+	// errors for how a choice can be refused.
+	Provider  string        `json:"provider,omitempty"`
+	Tools     []string      `json:"tools,omitempty"`
+	MCP       []string      `json:"mcp,omitempty"`
+	Ephemeral bool          `json:"ephemeral,omitempty"`
+	Events    []ThreadEvent `json:"events,omitempty"`
 }
 
 type ThreadSpawnResult struct {
 	Status string             `json:"status"`
 	Thread ThreadRef          `json:"thread"`
 	Events ThreadEventReceipt `json:"events,omitempty"`
+	// Provider is the thread's provider when the platform read it, which it
+	// tries to do whenever a request names one. Nil means unknown.
+	Provider *ThreadProviderStatus `json:"provider,omitempty"`
 }
 
 type ThreadEnsureRequest struct {
@@ -2144,6 +2156,9 @@ type ThreadEnsureResult struct {
 	Events      ThreadEventReceipt `json:"events,omitempty"`
 	ProfileHash string             `json:"profile_hash,omitempty"`
 	Reconciled  bool               `json:"reconciled,omitempty"`
+	// Provider is the thread's provider when the platform read it, which it
+	// tries to do whenever a request names one. Nil means unknown.
+	Provider *ThreadProviderStatus `json:"provider,omitempty"`
 }
 
 // PlatformAgent is the canonical type name for the entity formerly
