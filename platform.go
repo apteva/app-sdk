@@ -421,6 +421,12 @@ func (c *httpPlatformClient) callApp(ctx context.Context, appName, tool string, 
 		input = map[string]any{}
 	}
 	body := map[string]any{"tool": tool, "input": input}
+	if id := appInstallationFromContext(ctx); id != 0 {
+		if id < 0 {
+			return nil, false, errors.New("app installation ID must be positive")
+		}
+		body["target_install_id"] = id
+	}
 	rawBody, err := json.Marshal(body)
 	if err != nil {
 		return nil, false, err
@@ -478,6 +484,15 @@ func (c *httpPlatformClient) CallAppBatch(appName string, calls []AppCall) ([]Ap
 }
 
 func (c *httpPlatformClient) CallAppBatchContext(ctx context.Context, appName string, calls []AppCall, options AppBatchOptions) ([]AppCallResult, error) {
+	if id := appInstallationFromContext(ctx); id != 0 {
+		if options.TargetInstallID != 0 && options.TargetInstallID != id {
+			return nil, errors.New("conflicting app installation IDs")
+		}
+		options.TargetInstallID = id
+	}
+	if options.TargetInstallID < 0 {
+		return nil, errors.New("app installation ID must be positive")
+	}
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}

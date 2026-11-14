@@ -13,8 +13,9 @@ import (
 // explicit assertion that no call depends on another call's effects. Parallel
 // batches default to four workers and are limited to eight by the server.
 type AppBatchOptions struct {
-	Execution   string `json:"execution,omitempty"`
-	Concurrency int    `json:"concurrency,omitempty"`
+	TargetInstallID int64  `json:"target_install_id,omitempty"`
+	Execution       string `json:"execution,omitempty"`
+	Concurrency     int    `json:"concurrency,omitempty"`
 	// ResultMode "json" negotiates direct tool JSON; the default preserves MCP.
 	ResultMode string `json:"result_mode,omitempty"`
 }
