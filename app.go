@@ -198,10 +198,20 @@ type AppCtx struct {
 	cancel         <-chan struct{}
 	emitter        Emitter
 	currentProject string // "" until WithProject is called or env seeds it
+	restore        *RestoreReport
 }
 
 type appDBState struct {
 	generation atomic.Uint64
+}
+
+// Restore reports the snapshot restore applied at startup, or nil when the
+// sidecar did not start from restored data.
+func (c *AppCtx) Restore() *RestoreReport {
+	if c == nil {
+		return nil
+	}
+	return c.restore
 }
 
 // AppDB is the app's private database handle, opened by the framework
