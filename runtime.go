@@ -79,6 +79,27 @@ type RuntimeCreateRequest struct {
 	Subscriptions       []RuntimeSubscription       `json:"subscriptions,omitempty"`
 	SnapshotID          string                      `json:"snapshot_id,omitempty"`
 	Clock               *RuntimeClockSpec           `json:"clock,omitempty"`
+	// AppGrants are the only calls the runtime's apps may make to apps that
+	// are not installed in the runtime. Anything else is refused with
+	// RuntimeErrAppNotInRuntime.
+	AppGrants []RuntimeAppGrant `json:"app_grants,omitempty"`
+}
+
+// RuntimeErrAppNotInRuntime is the error code for a call from a runtime app
+// to an app that is not installed in the runtime and not granted.
+const RuntimeErrAppNotInRuntime = "app_not_in_runtime"
+
+// RuntimeAppGrant lets a runtime's apps call one tool of an app that is not
+// installed in the runtime. The call runs against that app's install in the
+// runtime's source project, so the tool must be read-only (manifest read_only
+// or the listed readOnlyHint), and the runtime's creator must still have
+// access to that project. Arguments, when set, are fixed: a call must pass
+// exactly these values, for example a single artifact digest. Results are
+// recorded and replayed with the runtime's network cassette.
+type RuntimeAppGrant struct {
+	App       string         `json:"app"`
+	Tool      string         `json:"tool"`
+	Arguments map[string]any `json:"arguments,omitempty"`
 }
 
 // RuntimeClockClient is an optional extension to RuntimeClient. Keeping it

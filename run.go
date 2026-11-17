@@ -127,6 +127,15 @@ func runApp(lifetime context.Context, app App) error {
 	if databases != nil {
 		ctx.db, ctx.readDB, ctx.dbState = databases.writer, databases.reader, databases.state
 	}
+	if os.Getenv(RestoreContextEnv) != "" {
+		status.progress("restoring", 0, 0)
+	}
+	restored, err := restoreAtStartup(startupCtx, ctx, app, logger)
+	if err != nil {
+		status.failIfInitializing()
+		return fmt.Errorf("restore: %w", err)
+	}
+	ctx.restore = restored
 	status.progress("mounting", 0, 0)
 	if err := app.OnMount(ctx); err != nil {
 		status.failIfInitializing()
@@ -301,6 +310,14 @@ func cachedPublicRouteMatcher(pattern string) (matcher *http.ServeMux) {
 func mountFrameworkRoutes(mux *http.ServeMux, app App, ctx *AppCtx) {
 	mountComponentRoutes(mux, app)
 	mux.HandleFunc("/health", func(w http.ResponseWriter, _ *http.Request) {
+		if ctx != nil && ctx.restore != nil {
+			// The platform requires this field after passing a restore
+			// context; an SDK without restore support never sets it.
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusOK)
+			_ = json.NewEncoder(w).Encode(map[string]any{"ok": true, "status": "ready", "restore": RestoreStatusApplied, "restore_id": ctx.restore.ID})
+			return
+		}
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte(`{"ok":true,"status":"ready"}`))
 	})
