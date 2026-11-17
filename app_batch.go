@@ -13,13 +13,47 @@ import (
 // explicit assertion that no call depends on another call's effects. Parallel
 // batches default to four workers and are limited to eight by the server.
 type AppBatchOptions struct {
-	Execution   string `json:"execution,omitempty"`
-	Concurrency int    `json:"concurrency,omitempty"`
+	TargetInstallID int64  `json:"target_install_id,omitempty"`
+	Execution       string `json:"execution,omitempty"`
+	Concurrency     int    `json:"concurrency,omitempty"`
 	// ResultMode "json" negotiates direct tool JSON; the default preserves MCP.
 	ResultMode string `json:"result_mode,omitempty"`
 }
 
 const ParallelIndependent = "parallel_independent"
+
+// InternalAppBatchPath is the SDK-owned target-side transport used by the
+// platform for authenticated app-to-app batches. It is deliberately separate
+// from /mcp: external MCP clients keep the standard JSON-RPC surface, while a
+// new platform can negotiate this endpoint and safely fall back for older
+// sidecars.
+const InternalAppBatchPath = "/_apteva/internal/app-calls"
+
+// HeaderInternalAppBatchVersion is returned by the SDK-owned batch endpoint.
+// The platform must only treat a response as the internal protocol when this
+// marker is present; a custom application route at the same path cannot be
+// mistaken for a successful batch response.
+const HeaderInternalAppBatchVersion = "X-Apteva-Internal-App-Batch-Version"
+const InternalAppBatchVersion = "1"
+
+// InternalAppCall and InternalAppBatchRequest are transport contracts between
+// apteva-server and SDK sidecars. Inputs stay as raw JSON across the server so
+// internal dispatch does not add an MCP envelope or decode application data.
+// App developers should continue to use AppCall and CallAppBatchContext.
+type InternalAppCall struct {
+	ID    string          `json:"id,omitempty"`
+	Tool  string          `json:"tool"`
+	Input json.RawMessage `json:"input,omitempty"`
+}
+
+type InternalAppBatchRequest struct {
+	Calls []InternalAppCall `json:"calls"`
+	AppBatchOptions
+}
+
+type InternalAppBatchResponse struct {
+	Results []AppCallResult `json:"results"`
+}
 
 // HeaderAppCallDeadline carries the caller's absolute Unix-millisecond
 // deadline across HTTP hops. Cancellation also propagates via request context.

@@ -72,9 +72,9 @@ func newHTTPPlatformClient(baseURL, token string) PlatformClient {
 	}
 	return &httpPlatformClient{
 		baseURL: baseURL, token: token,
-		client:       &http.Client{Timeout: 30 * time.Second},
-		slowClient:   &http.Client{Timeout: 10 * time.Minute},
-		streamClient: &http.Client{},
+		client:       &http.Client{Timeout: 30 * time.Second, Transport: gatewayTransport()},
+		slowClient:   &http.Client{Timeout: 10 * time.Minute, Transport: gatewayTransport()},
+		streamClient: &http.Client{Transport: gatewayTransport()},
 	}
 }
 
@@ -383,12 +383,16 @@ func (c *httpPlatformClient) WhoAmI() (*InstallIdentity, error) {
 }
 
 func (c *httpPlatformClient) ExecuteIntegrationTool(connID int64, tool string, input map[string]any) (*ExecuteResult, error) {
+	return c.ExecuteIntegrationToolContext(context.Background(), connID, tool, input)
+}
+
+func (c *httpPlatformClient) ExecuteIntegrationToolContext(ctx context.Context, connID int64, tool string, input map[string]any) (*ExecuteResult, error) {
 	if input == nil {
 		input = map[string]any{}
 	}
 	body := map[string]any{"tool": tool, "input": input}
 	var out ExecuteResult
-	if err := c.postWith(c.slowClient, "/api/apps/callback/integrations/"+strconv.FormatInt(connID, 10)+"/execute", body, &out); err != nil {
+	if err := c.postWithContext(ctx, c.slowClient, "/api/apps/callback/integrations/"+strconv.FormatInt(connID, 10)+"/execute", body, &out); err != nil {
 		return nil, err
 	}
 	return &out, nil
@@ -417,6 +421,12 @@ func (c *httpPlatformClient) callApp(ctx context.Context, appName, tool string, 
 		input = map[string]any{}
 	}
 	body := map[string]any{"tool": tool, "input": input}
+	if id := appInstallationFromContext(ctx); id != 0 {
+		if id < 0 {
+			return nil, false, errors.New("app installation ID must be positive")
+		}
+		body["target_install_id"] = id
+	}
 	rawBody, err := json.Marshal(body)
 	if err != nil {
 		return nil, false, err
@@ -474,6 +484,15 @@ func (c *httpPlatformClient) CallAppBatch(appName string, calls []AppCall) ([]Ap
 }
 
 func (c *httpPlatformClient) CallAppBatchContext(ctx context.Context, appName string, calls []AppCall, options AppBatchOptions) ([]AppCallResult, error) {
+	if id := appInstallationFromContext(ctx); id != 0 {
+		if options.TargetInstallID != 0 && options.TargetInstallID != id {
+			return nil, errors.New("conflicting app installation IDs")
+		}
+		options.TargetInstallID = id
+	}
+	if options.TargetInstallID < 0 {
+		return nil, errors.New("app installation ID must be positive")
+	}
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
@@ -563,6 +582,15 @@ func decodeMCPEnvelope(raw json.RawMessage, appName, tool string, out any) error
 }
 
 func decodeMCPContent(raw json.RawMessage, appName, tool string, out any) (bool, error) {
+	// Native-content consumers opt in explicitly. Keep every image/text block
+	// on older callback transports too; ordinary JSON callers still unwrap the
+	// first text block exactly as before.
+	if _, native := out.(*MCPResult); native {
+		var result map[string]json.RawMessage
+		if json.Unmarshal(raw, &result) == nil && result["content"] != nil {
+			return true, json.Unmarshal(raw, out)
+		}
+	}
 	var result struct {
 		Content []struct {
 			Type string `json:"type"`
@@ -1210,6 +1238,9 @@ func (p *projectScopedClient) WhoAmI() (*InstallIdentity, error) {
 }
 func (p *projectScopedClient) ExecuteIntegrationTool(connID int64, tool string, input map[string]any) (*ExecuteResult, error) {
 	return p.inner.ExecuteIntegrationTool(connID, tool, input)
+}
+func (p *projectScopedClient) ExecuteIntegrationToolContext(ctx context.Context, connID int64, tool string, input map[string]any) (*ExecuteResult, error) {
+	return ExecuteIntegrationToolContext(ctx, p.inner, connID, tool, input)
 }
 func (p *projectScopedClient) GetIntegrationURLProperty(connID int64, property string) (*IntegrationURLPropertyStatus, error) {
 	return GetIntegrationURLProperty(p.inner, connID, property)

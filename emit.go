@@ -43,7 +43,8 @@ func newHTTPEmitter(gatewayURL, token string, logger Logger) *httpEmitter {
 		token:      token,
 		logger:     logger,
 		client: &http.Client{
-			Timeout: emitTimeout,
+			Timeout:   emitTimeout,
+			Transport: gatewayTransport(),
 		},
 	}
 }
@@ -115,7 +116,7 @@ func (e *httpEmitter) EmitWithProjectAck(ctx context.Context, topic, projectID s
 	}
 	req.Header.Set("Authorization", "Bearer "+e.token)
 	req.Header.Set("Content-Type", "application/json")
-	client := &http.Client{Timeout: 5 * time.Second}
+	client := &http.Client{Timeout: 5 * time.Second, Transport: gatewayTransport()}
 	resp, err := client.Do(req)
 	if err != nil {
 		return err

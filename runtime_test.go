@@ -147,11 +147,11 @@ func TestRuntimeAgentSpawnAndWaitContracts(t *testing.T) {
 	}))
 	defer server.Close()
 	c := &httpPlatformClient{baseURL: server.URL, token: "token", client: server.Client(), slowClient: server.Client()}
-	agent, err := c.SpawnRuntimeAgent("rt-1", RuntimeAgentSpawnRequest{SourceAgentID: 3, Provider: "anthropic", Model: "claude-test"})
+	agent, err := c.SpawnRuntimeAgent("rt-1", RuntimeAgentSpawnRequest{SourceAgentID: 3, Provider: "anthropic", Model: "claude-test", StartPaused: true, StartPausedScope: "thread", StartPausedThreadID: "main"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if agent.Provider != "anthropic" || spawn.Model != "claude-test" {
+	if agent.Provider != "anthropic" || spawn.Model != "claude-test" || !spawn.StartPaused || spawn.StartPausedScope != "thread" || spawn.StartPausedThreadID != "main" {
 		t.Fatalf("agent=%#v spawn=%#v", agent, spawn)
 	}
 	execution, err := c.WaitRuntimeAgent("rt-1", "main", RuntimeAgentWaitRequest{MaxTurns: 7})

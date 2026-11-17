@@ -69,6 +69,7 @@ type Tool struct {
 	Description string
 	InputSchema map[string]any // JSON schema
 	Meta        map[string]any // MCP _meta extension fields
+	Annotations map[string]any // Standard MCP behavior hints; never permissions.
 	// Exposure controls who may discover and invoke this tool. Empty and
 	// ToolExposurePublic preserve the historical behavior: the tool is listed
 	// to agents and may also be called by a bound app. ToolExposureAppOnly keeps
@@ -104,6 +105,7 @@ type ToolHandlerCtx func(ctx context.Context, app *AppCtx, args map[string]any) 
 // declarative ("@every 5m" / cron) for periodic workers; leave empty
 // for one-shot run-to-completion workers.
 type Worker struct {
+	Workload string // Optional declared cooperative workload; empty preserves legacy behavior.
 	Name     string
 	Schedule string
 	Run      func(ctx context.Context, app *AppCtx) error
@@ -180,6 +182,7 @@ type ChannelMessage struct {
 // over reading the env directly — that's the single hook that makes
 // a global install behave correctly.
 type AppCtx struct {
+	resources      *resourceRuntime
 	startupContext context.Context
 	startup        *startupStatus
 	manifest       *Manifest
@@ -1318,6 +1321,10 @@ type BrowserOriginPolicyClient interface {
 // platform-level fact apps need to read at runtime — keep it small;
 // per-app config_schema still owns per-app knobs.
 type PlatformInfo struct {
+	AsyncResultNotifications *AsyncResultCapabilities `json:"async_result_notifications,omitempty"`
+	// FileReferences advertises the optional durable attachment contract.
+	FileReferences        string          `json:"file_references,omitempty"`
+	FileReferenceDispatch map[string]bool `json:"file_reference_dispatch,omitempty"`
 	// PublicURL is the apteva-server's externally-reachable base URL.
 	// Used by sidecars to construct webhooks, signed URLs handed to
 	// third parties, etc. May be "" on local-only installs that
@@ -1343,6 +1350,9 @@ type PlatformProject struct {
 // IngressExposeRequest is the body for PlatformClient.ExposeIngress.
 // Target must be an absolute http://, https://, or app:// URL.
 type IngressExposeRequest struct {
+	// Mode selects ordinary HTTP ingress or an SNI-routed forward proxy.
+	// forward_proxy requires an app-owned target and native TLS.
+	Mode      string `json:"mode,omitempty"`
 	Hostname  string `json:"hostname"`
 	Target    string `json:"target"`
 	ProjectID string `json:"project_id,omitempty"`
@@ -1356,6 +1366,7 @@ type IngressExposeRequest struct {
 // IngressRoute is one server-native hostname exposure owned by an app
 // install.
 type IngressRoute struct {
+	Mode           string                    `json:"mode,omitempty"`
 	ID             int64                     `json:"id"`
 	Hostname       string                    `json:"hostname"`
 	Target         string                    `json:"target"`
@@ -1627,12 +1638,22 @@ type RealtimeAudioTerminalMessage struct {
 	Detail    string                      `json:"detail,omitempty"`
 }
 
+// RealtimeExecutionConfig selects Core-managed inference for a voice thread.
+// Omission inherits the provider configuration. Mode is "thread" or "provider".
+type RealtimeExecutionConfig struct {
+	Mode     string `json:"mode,omitempty"`
+	Provider string `json:"provider,omitempty"`
+	Model    string `json:"model,omitempty"`
+}
+
 // RealtimeSpawnRequest is the body for PlatformClient.SpawnRealtimeThread.
 // Creates a realtime (voice/audio) thread in core that the app can
 // bridge audio into. The audio bridge runs over a separate
 // token-authenticated WebSocket proxy — the result carries the full
 // URL the app uses to connect.
 type RealtimeSpawnRequest struct {
+	// RealtimeMedia selects an explicit provider transport and bridge audio format.
+	RealtimeMedia *RealtimeMediaConfig `json:"realtime_media,omitempty"`
 	// AgentID — the calling agent's instance id. The realtime thread
 	// is spawned INSIDE this agent (as a sub-thread of main), so
 	// the agent can address it via send/done. Apps using
@@ -1652,6 +1673,9 @@ type RealtimeSpawnRequest struct {
 	// Provider — explicit realtime provider name (e.g. "openai-realtime").
 	// Empty = pool default.
 	Provider string `json:"provider,omitempty"`
+	// Model selects a configured voice model tier: large, medium or small.
+	Model             string                   `json:"model,omitempty"`
+	RealtimeExecution *RealtimeExecutionConfig `json:"realtime_execution,omitempty"`
 	// CapabilityMode explicitly controls how Tools and MCP are interpreted.
 	// New callers should always set it. Omission retains the legacy behavior:
 	// omitted Tools+MCP inherit the agent; otherwise they are explicit.
@@ -2040,6 +2064,9 @@ type ConnectionFilter struct {
 }
 
 type PlatformInstance struct {
+	// Optional server-owned visual identity. Older servers leave these empty.
+	Icon            string `json:"icon,omitempty"`
+	IconColor       string `json:"icon_color,omitempty"`
 	ID              int64  `json:"id"`
 	Name            string `json:"name"`
 	Status          string `json:"status"`
@@ -2203,4 +2230,11 @@ func (c *AppCtx) ReportStartupProgress(phase string, completed, total int64) {
 	if c != nil && c.startup != nil {
 		c.startup.progress(phase, completed, total)
 	}
+}
+
+// RealtimeMediaConfig is immutable media intent. Empty values retain the existing
+// transport and PCM16/24kHz bridge. Unsupported explicit choices fail setup.
+type RealtimeMediaConfig struct {
+	Transport string `json:"transport,omitempty"`
+	Format    string `json:"format,omitempty"`
 }

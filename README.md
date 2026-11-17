@@ -6,6 +6,12 @@ prompt fragments, UI panels, and workers.
 
 Apps depend on this module only — never on `apteva-server` internals.
 
+For optional independently deployed services owned by an app, see
+[owned app components](docs/components.md).
+
+For verified client addresses in HTTP and WebSocket handlers, see
+[client IP metadata](docs/client-ip.md).
+
 Apteva apps can also be packaged as additive Agent Plugins 1.0.0 packages.
 See [AGENT_PLUGINS.md](AGENT_PLUGINS.md); existing `apteva.yaml` packages and
 install URLs remain fully supported.
@@ -43,6 +49,31 @@ func (a *MyApp) EventHandlers() []sdk.EventHandler { return nil }
 func main() { sdk.Run(&MyApp{}) }
 ```
 
+## Native MCP tool content
+
+Tools return ordinary Go values as JSON inside an MCP text block by default.
+Return `sdk.MCPResult` (or its pointer) to supply text and actual image content
+to a vision-capable calling model:
+
+```go
+return sdk.MCPResult{
+    Content: []sdk.MCPContent{
+        {Type: "text", Text: "Page 1 of 3"},
+        {Type: "image", MIMEType: "image/jpeg", Data: imageBase64},
+    },
+    StructuredContent: map[string]any{"total_pages": 3},
+}, nil
+```
+
+`Data` contains standard base64 without a data-URL prefix. The SDK validates
+image encoding and preserves empty text. Ordinary maps, including maps with a
+`content` field, keep their existing JSON-as-text response. Tool permissions,
+caller identity, project context, and RPC errors use the same execution path.
+
+Negotiated app-to-app JSON and internal batches retain the complete result.
+For older MCP-wrapped callbacks, pass `*sdk.MCPResult` to `CallAppResult` to
+preserve every block. Its `IsError` flag remains available to the consumer.
+
 ## What the platform injects at boot
 
 The orchestrator-deployed sidecar receives:
@@ -66,6 +97,7 @@ Set the relevant block in `apteva.yaml` (see `manifest.go` for the full schema):
 - `prompt_fragments` — concatenated into instance directives
 - `ui_panels` — UMD bundle into Apteva's dashboard slot
 - `ui_surfaces` — code-free, declarative native UI for iOS and Android
+- `exports` — versioned read-only summaries/entities for discoverable app contributions
 - `ui_pages` — iframe-mounted top-level nav entry
 - `ui_app` — own subdomain via Traefik (white-label)
 - `channels` — inbound + outbound message adapters
@@ -73,6 +105,10 @@ Set the relevant block in `apteva.yaml` (see `manifest.go` for the full schema):
 
 Anything you don't declare — leave the field out or return `nil` from
 the matching `App` method.
+
+See [CONTRIBUTIONS.md](CONTRIBUTIONS.md) for generic discovery, shared data
+contracts, and resource cards in existing `chat.message_attachment` components.
+The SDK contract is available; discovery/proxy endpoints require server support.
 
 ### Native mobile surfaces
 
@@ -220,3 +256,63 @@ platform database restore guarantee. Failed activation restores only the prior
 process/routing. Automatic activation of `requires_restore` apps is rejected:
 those apps need an offline migration and a verified backup/restore procedure.
 Do not restore a database underneath a running writer.
+
+### Exclusive process activation
+
+Apps that need an exclusive listener or another process-owned resource can
+declare:
+
+```yaml
+runtime:
+  activation_strategy: exclusive
+```
+
+Absent or `auto` retains normal activation. `exclusive` prepares the replacement
+while the previous process serves, then stops and reaps that process before
+starting the replacement. Either version's policy, or declared fixed host ports,
+requires this sequence, so removing the policy still gets one exclusive update.
+The scope is one installation; two installations using the same app-configured
+port still need distinct configuration. Unknown strategies are rejected, and
+static apps cannot declare `exclusive`.
+
+A supporting local supervisor verifies HTTP readiness and known fixed TCP listeners.
+Apps must keep `/health` unsuccessful until all required configured or UDP
+listeners are ready; binding during `OnMount` uses the SDK's existing startup
+gate. Exclusive updates are temporarily unavailable during stop/start and can
+interrupt active sessions. Failed activation restarts the previous binary with
+its captured configuration and verifies it using its original startup deadline.
+Failed rollback is reported as an error. Database restore restrictions still
+apply.
+
+Release order: publish a supporting SDK tag, release and deploy the supporting
+Apteva server, then release apps that opt in. Set `min_apteva_version` to that
+actual server release before an app relies on this field. The SDK field is
+available from v0.100.0; server support remains unreleased. Do not assign an
+earlier server version as the support floor. Older servers may ignore these
+fields, so upgrade them before deploying an opting-in app. The supporting server checks `min_apteva_version` at installation and
+activation; local `dev` builds validate its syntax without a release comparison.
+Manual/remote app mounting does not provide the exclusive supervisor contract.
+
+## User notifications
+
+Apps can opt existing published events into dashboard, desktop and mobile notifications. See [NOTIFICATIONS.md](NOTIFICATIONS.md) for declarations, defaults, audiences, resource follows and delivery semantics.
+
+### Guided setup
+
+Apps can declare feature-based install and edit guidance, including nested
+app dependencies and app-owned readiness checks. See [SETUP.md](SETUP.md) for
+the manifest contract and CRM/Messaging adoption examples.
+
+### Unified file handles
+
+See [FILE_REFERENCES.md](FILE_REFERENCES.md) for server-stored blobs and app-owned attachments using one handle,
+thread grants, internal resolution into binary tool arguments, integration calls,
+and capability-based migration from older servers.
+
+App UI may make optional scoped host presentation requests, initially to hide
+only the floating assistant launcher. See [Host UI requests](docs/host-ui.md)
+for manifest defaults, module/iframe APIs, lifecycle and compatibility rules.
+
+Widget instance configuration: [settings UI and discovery](docs/widget-settings.md).
+
+Agent creation: [manifest-driven app recommendations](docs/agent-setup.md).

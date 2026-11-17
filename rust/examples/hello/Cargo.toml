@@ -1,0 +1,10 @@
+[package]
+name = "apteva-rust-hello"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+apteva-app-sdk = { path = "../.." }
+serde_json = "1"
+tokio = { version = "1", features = ["macros", "rt-multi-thread"] }

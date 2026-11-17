@@ -145,6 +145,89 @@ type NativeSurfaceSection struct {
 	Empty        *NativeSurfaceSemanticState   `json:"empty,omitempty"`
 	Loading      *NativeSurfaceSemanticState   `json:"loading,omitempty"`
 	Error        *NativeSurfaceSemanticState   `json:"error,omitempty"`
+	Component    string                        `json:"component,omitempty"`
+	Chat         *NativeSurfaceChatComponent   `json:"chat,omitempty"`
+}
+
+// NativeSurfaceChatComponent is a portable chat experience. The host owns the
+// native interaction model while the declaring app owns every route, mapping,
+// action, and stream event name.
+type NativeSurfaceChatComponent struct {
+	ConversationsSource string                           `json:"conversations_source"`
+	MessagesSource      string                           `json:"messages_source"`
+	SelectionState      string                           `json:"selection_state"`
+	SendAction          string                           `json:"send_action"`
+	CreateAction        string                           `json:"create_action,omitempty"`
+	MarkSeenAction      string                           `json:"mark_seen_action,omitempty"`
+	Conversation        NativeSurfaceConversationMapping `json:"conversation"`
+	Message             NativeSurfaceMessageMapping      `json:"message"`
+	Subscription        *NativeSurfaceSubscription       `json:"subscription,omitempty"`
+	Live                *NativeSurfaceChatLiveMapping    `json:"live,omitempty"`
+}
+
+// NativeSurfaceChatLiveMapping maps ephemeral response, progress, and tool
+// activity frames without coupling native hosts to an app's payload shape.
+type NativeSurfaceChatLiveMapping struct {
+	ID       string                            `json:"id,omitempty"`
+	AgentID  string                            `json:"agent_id,omitempty"`
+	ThreadID string                            `json:"thread_id,omitempty"`
+	RunID    string                            `json:"run_id,omitempty"`
+	Text     string                            `json:"text,omitempty"`
+	Phase    string                            `json:"phase,omitempty"`
+	Done     string                            `json:"done,omitempty"`
+	Progress *NativeSurfaceChatProgressMapping `json:"progress,omitempty"`
+	Activity *NativeSurfaceChatActivityMapping `json:"activity,omitempty"`
+}
+
+type NativeSurfaceChatProgressMapping struct {
+	Value          string `json:"value,omitempty"`
+	Phase          string `json:"phase,omitempty"`
+	Revision       string `json:"revision,omitempty"`
+	ToolName       string `json:"tool_name,omitempty"`
+	CallID         string `json:"call_id,omitempty"`
+	AfterMessageID string `json:"after_message_id,omitempty"`
+}
+
+type NativeSurfaceChatActivityMapping struct {
+	Value      string `json:"value,omitempty"`
+	ID         string `json:"id,omitempty"`
+	Revision   string `json:"revision,omitempty"`
+	Name       string `json:"name,omitempty"`
+	Reason     string `json:"reason,omitempty"`
+	Status     string `json:"status,omitempty"`
+	DurationMS string `json:"duration_ms,omitempty"`
+}
+
+type NativeSurfaceConversationMapping struct {
+	ID        string `json:"id"`
+	Title     string `json:"title"`
+	Subtitle  string `json:"subtitle,omitempty"`
+	Preview   string `json:"preview,omitempty"`
+	UpdatedAt string `json:"updated_at,omitempty"`
+	Unread    string `json:"unread,omitempty"`
+}
+
+type NativeSurfaceMessageMapping struct {
+	ID             string `json:"id"`
+	ConversationID string `json:"conversation_id"`
+	Body           string `json:"body"`
+	Author         string `json:"author,omitempty"`
+	Role           string `json:"role,omitempty"`
+	CreatedAt      string `json:"created_at,omitempty"`
+	Status         string `json:"status,omitempty"`
+}
+
+type NativeSurfaceSubscription struct {
+	Request     NativeSurfaceRequest                 `json:"request"`
+	CursorQuery string                               `json:"cursor_query,omitempty"`
+	Events      map[string]NativeSurfaceEventMapping `json:"events"`
+}
+
+type NativeSurfaceEventMapping struct {
+	Operation string `json:"operation"`
+	Source    string `json:"source"`
+	Value     string `json:"value,omitempty"`
+	ID        string `json:"id,omitempty"`
 }
 
 type NativeSurfaceSearch struct {
@@ -630,7 +713,7 @@ func validateNativeSection(section NativeSurfaceSection, prefix string, surface 
 		return fmt.Errorf("%s has invalid or duplicate id %q", prefix, section.ID)
 	}
 	switch section.Kind {
-	case "collection", "metrics", "timeline", "properties", "file_preview", "text":
+	case "collection", "metrics", "timeline", "properties", "file_preview", "text", "component":
 	default:
 		return fmt.Errorf("%s kind %q unsupported", prefix, section.Kind)
 	}
@@ -673,6 +756,14 @@ func validateNativeSection(section NativeSurfaceSection, prefix string, surface 
 			return fmt.Errorf("%s item references unknown destination %q", prefix, section.Item.Destination)
 		}
 		if err := validateNativeActionRefs(section.Item.Actions, prefix+" item", surface.Actions); err != nil {
+			return err
+		}
+	}
+	if section.Kind == "component" {
+		if section.Component != "chat/v1" || section.Chat == nil {
+			return fmt.Errorf("%s component must declare chat/v1 and chat configuration", prefix)
+		}
+		if err := validateNativeChatComponent(*section.Chat, prefix, surface); err != nil {
 			return err
 		}
 	}
@@ -765,6 +856,120 @@ func validateNativeSection(section NativeSurfaceSection, prefix string, surface 
 		}
 	}
 	return validateNativeActionRefs(section.Actions, prefix, surface.Actions)
+}
+
+func validateNativeChatComponent(chat NativeSurfaceChatComponent, prefix string, surface *NativeSurface) error {
+	conversationSource, conversationsOK := surface.DataSources[chat.ConversationsSource]
+	messageSource, messagesOK := surface.DataSources[chat.MessagesSource]
+	if !conversationsOK || conversationSource.Response.Items == "" {
+		return fmt.Errorf("%s chat conversations_source must reference an items data source", prefix)
+	}
+	if !messagesOK || messageSource.Response.Items == "" {
+		return fmt.Errorf("%s chat messages_source must reference an items data source", prefix)
+	}
+	if state, ok := surface.State[chat.SelectionState]; !ok || state.Type != "string" {
+		return fmt.Errorf("%s chat selection_state must reference string state", prefix)
+	}
+	for label, action := range map[string]string{
+		"send_action":      chat.SendAction,
+		"create_action":    chat.CreateAction,
+		"mark_seen_action": chat.MarkSeenAction,
+	} {
+		if label == "send_action" && action == "" {
+			return fmt.Errorf("%s chat send_action required", prefix)
+		}
+		if action != "" && surface.Actions[action].Type == "" {
+			return fmt.Errorf("%s chat %s references unknown action %q", prefix, label, action)
+		}
+	}
+	selectors := map[string]string{
+		"conversation.id":         chat.Conversation.ID,
+		"conversation.title":      chat.Conversation.Title,
+		"conversation.subtitle":   chat.Conversation.Subtitle,
+		"conversation.preview":    chat.Conversation.Preview,
+		"conversation.updated_at": chat.Conversation.UpdatedAt,
+		"conversation.unread":     chat.Conversation.Unread,
+		"message.id":              chat.Message.ID,
+		"message.conversation_id": chat.Message.ConversationID,
+		"message.body":            chat.Message.Body,
+		"message.author":          chat.Message.Author,
+		"message.role":            chat.Message.Role,
+		"message.created_at":      chat.Message.CreatedAt,
+		"message.status":          chat.Message.Status,
+	}
+	for name, selector := range selectors {
+		required := name == "conversation.id" || name == "conversation.title" || name == "message.id" || name == "message.conversation_id" || name == "message.body"
+		if required && selector == "" {
+			return fmt.Errorf("%s chat %s mapping required", prefix, name)
+		}
+		if selector != "" && !validSelector(selector) {
+			return fmt.Errorf("%s chat %s has invalid selector %q", prefix, name, selector)
+		}
+	}
+	if chat.Live != nil {
+		liveSelectors := map[string]string{
+			"live.id": chat.Live.ID, "live.agent_id": chat.Live.AgentID,
+			"live.thread_id": chat.Live.ThreadID, "live.run_id": chat.Live.RunID,
+			"live.text": chat.Live.Text, "live.phase": chat.Live.Phase, "live.done": chat.Live.Done,
+		}
+		if chat.Live.Progress != nil {
+			liveSelectors["live.progress.value"] = chat.Live.Progress.Value
+			liveSelectors["live.progress.phase"] = chat.Live.Progress.Phase
+			liveSelectors["live.progress.revision"] = chat.Live.Progress.Revision
+			liveSelectors["live.progress.tool_name"] = chat.Live.Progress.ToolName
+			liveSelectors["live.progress.call_id"] = chat.Live.Progress.CallID
+			liveSelectors["live.progress.after_message_id"] = chat.Live.Progress.AfterMessageID
+		}
+		if chat.Live.Activity != nil {
+			liveSelectors["live.activity.value"] = chat.Live.Activity.Value
+			liveSelectors["live.activity.id"] = chat.Live.Activity.ID
+			liveSelectors["live.activity.revision"] = chat.Live.Activity.Revision
+			liveSelectors["live.activity.name"] = chat.Live.Activity.Name
+			liveSelectors["live.activity.reason"] = chat.Live.Activity.Reason
+			liveSelectors["live.activity.status"] = chat.Live.Activity.Status
+			liveSelectors["live.activity.duration_ms"] = chat.Live.Activity.DurationMS
+		}
+		for name, selector := range liveSelectors {
+			if selector != "" && !validSelector(selector) {
+				return fmt.Errorf("%s chat %s has invalid selector %q", prefix, name, selector)
+			}
+		}
+	}
+	if chat.Subscription == nil {
+		return nil
+	}
+	if chat.Subscription.Request.Method != "GET" {
+		return fmt.Errorf("%s chat subscription request must use GET", prefix)
+	}
+	if err := validateNativeRequest(chat.Subscription.Request, prefix+" chat subscription", surface.State); err != nil {
+		return err
+	}
+	if len(chat.Subscription.Events) == 0 {
+		return fmt.Errorf("%s chat subscription requires event mappings", prefix)
+	}
+	for event, mapping := range chat.Subscription.Events {
+		if strings.TrimSpace(event) == "" {
+			return fmt.Errorf("%s chat subscription event name required", prefix)
+		}
+		switch mapping.Operation {
+		case "append", "prepend", "upsert", "remove", "invalidate", "set_activity":
+		default:
+			return fmt.Errorf("%s chat subscription event %q has unsupported operation %q", prefix, event, mapping.Operation)
+		}
+		if _, ok := surface.DataSources[mapping.Source]; !ok {
+			return fmt.Errorf("%s chat subscription event %q references unknown source %q", prefix, event, mapping.Source)
+		}
+		if mapping.Operation != "invalidate" && mapping.Value == "" {
+			return fmt.Errorf("%s chat subscription event %q requires value", prefix, event)
+		}
+		if mapping.Value != "" && !validSelector(mapping.Value) {
+			return fmt.Errorf("%s chat subscription event %q has invalid value selector", prefix, event)
+		}
+		if mapping.ID != "" && !validSelector(mapping.ID) {
+			return fmt.Errorf("%s chat subscription event %q has invalid id selector", prefix, event)
+		}
+	}
+	return nil
 }
 
 func validateNativeAction(name string, action NativeSurfaceAction, surface *NativeSurface, sectionIDs map[string]bool) error {

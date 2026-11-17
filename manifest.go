@@ -37,6 +37,9 @@ const (
 
 	UIComponentVisibilityAttached = "attached"
 	UIComponentVisibilityProject  = "project"
+
+	UIComponentDashboardScopeProject = "project"
+	UIComponentDashboardScopeGlobal  = "global"
 )
 
 // Manifest is the single source of truth for an app — identity,
@@ -66,6 +69,11 @@ type Manifest struct {
 	Runtime      Runtime       `yaml:"runtime" json:"runtime"`
 	DB           *DBConfig     `yaml:"db,omitempty" json:"db,omitempty"`
 	ConfigSchema []ConfigField `yaml:"config_schema" json:"config_schema"`
+	AgentSetup   *AgentSetup   `yaml:"agent_setup,omitempty" json:"agent_setup,omitempty"`
+	Setup        *SetupSpec    `yaml:"setup,omitempty" json:"setup,omitempty"`
+	// Components are private services owned by this installation. Their
+	// placement is selected by the operator through Server's runtime controller.
+	Components ComponentDeclarations `yaml:"components,omitempty" json:"components,omitempty"`
 
 	// Imports is an app-owned declarative catalog of external sources this
 	// app knows how to import into itself. The platform may interpret this
@@ -87,9 +95,13 @@ const (
 // MCP tools the user must attach, minimum platform version, and
 // other Apteva apps that must be installed alongside.
 type Requires struct {
-	Permissions       []Permission     `yaml:"permissions" json:"permissions"`
-	MCPToolsAtRuntime []string         `yaml:"mcp_tools_at_runtime" json:"mcp_tools_at_runtime"`
-	Apps              []RequiredAppRef `yaml:"apps,omitempty" json:"apps,omitempty"`
+	// Contributions declares contracts or resource renderers this app consumes.
+	// Discovery is consented by contract, rather than by a hard-coded app list.
+	// This declaration never grants access to producer records on its own.
+	Contributions     []ContributionRequirement `yaml:"contributions,omitempty" json:"contributions,omitempty"`
+	Permissions       []Permission              `yaml:"permissions" json:"permissions"`
+	MCPToolsAtRuntime []string                  `yaml:"mcp_tools_at_runtime" json:"mcp_tools_at_runtime"`
+	Apps              []RequiredAppRef          `yaml:"apps,omitempty" json:"apps,omitempty"`
 	// Integrations declares roles this app fills with either an
 	// integration connection or another Apteva app. The operator
 	// binds each role at install time; the app reads the binding
@@ -252,6 +264,8 @@ type RequiredAppRef struct {
 // Provides describes the surfaces this app contributes back to the
 // platform — none, one, or many.
 type Provides struct {
+	// Exports advertises read-only app-owned data for generic consumers.
+	Exports         []AppExport      `yaml:"exports,omitempty" json:"exports,omitempty"`
 	HTTPRoutes      []RouteSpec      `yaml:"http_routes" json:"http_routes"`
 	MCPTools        []MCPToolSpec    `yaml:"mcp_tools" json:"mcp_tools"`
 	PromptFragments []PromptFragment `yaml:"prompt_fragments" json:"prompt_fragments"`
@@ -292,6 +306,7 @@ type Provides struct {
 // cares about the topic string). The dashboard uses these for the
 // subscription form's event picker and for tooltip descriptions.
 type EventDecl struct {
+	Notification *NotificationSpec `yaml:"notification,omitempty" json:"notification,omitempty"`
 	// Name is the topic string, dot-separated by convention
 	// ("media.indexed", "account.created"). Must match exactly what
 	// ctx.Emit("…", …) passes at runtime.
@@ -406,6 +421,14 @@ type Skill struct {
 // anywhere; they're effectively dead code (intentional: forces apps
 // to be explicit about where their UI shows up).
 type UIComponent struct {
+	HostUI *HostUI `yaml:"host_ui,omitempty" json:"host_ui,omitempty"`
+	// ResourceTypes selects structured app resource references this component
+	// can render. Matching is scoped to the originating installation and slot.
+	// Empty preserves existing explicit component/props attachments.
+	ResourceTypes []string `yaml:"resource_types,omitempty" json:"resource_types,omitempty"`
+	// Permissions names producer-defined permissions required to render a
+	// resource card. Record-level authorization still applies when fetching it.
+	Permissions []string `yaml:"permissions,omitempty" json:"permissions,omitempty"`
 	Name        string   `yaml:"name" json:"name"`   // kebab-case, scoped under the app
 	Entry       string   `yaml:"entry" json:"entry"` // sidecar path: "/ui/FileCard.mjs"
 	Slots       []string `yaml:"slots" json:"slots"` // allowlist of where it can render
@@ -420,6 +443,12 @@ type UIComponent struct {
 	// attached to the target agent. "project" makes the contribution available
 	// anywhere in the project. Home contributions are project-visible by nature.
 	Visibility string `yaml:"visibility,omitempty" json:"visibility,omitempty"`
+	// DashboardScopes declares which Home scopes can mount this same
+	// component. Empty means project-only for backwards compatibility.
+	DashboardScopes []string `yaml:"dashboard_scopes,omitempty" json:"dashboard_scopes,omitempty"`
+	// RecommendedViews suggests agent-page presets for this widget. It does
+	// not restrict availability or confer permissions. Empty supports all views.
+	RecommendedViews []string `yaml:"recommended_views,omitempty" json:"recommended_views,omitempty"`
 	// RefreshTopics narrows live refreshes to the declared app-bus topics. Empty
 	// preserves the legacy behaviour of refreshing after any event from the app.
 	RefreshTopics []string `yaml:"refresh_topics,omitempty" json:"refresh_topics,omitempty"`
@@ -437,7 +466,8 @@ type UIComponent struct {
 	// SettingsSchema describes operator-owned, per-widget-instance settings.
 	// It is deliberately separate from PropsSchema, which describes props an
 	// agent supplies when attaching a component to a chat message.
-	SettingsSchema map[string]any `yaml:"settings_schema,omitempty" json:"settings_schema,omitempty"`
+	SettingsSchema map[string]any    `yaml:"settings_schema,omitempty" json:"settings_schema,omitempty"`
+	SettingsUI     *WidgetSettingsUI `yaml:"settings_ui,omitempty" json:"settings_ui,omitempty"`
 	// Native is the declarative renderer used by native clients for this same
 	// component identity. The web dashboard continues to load Entry, while
 	// iOS and Android load Native.Entry and render it without executing remote
@@ -484,6 +514,7 @@ type NativeUIRenderer struct {
 // context. Surface documents must never contain credentials or absolute API
 // origins; their request paths are resolved inside the declaring app.
 type UISurface struct {
+	HostUI *HostUI  `yaml:"host_ui,omitempty" json:"host_ui,omitempty"`
 	ID     string   `yaml:"id" json:"id"`         // lowercase slug, scoped under the app
 	Label  string   `yaml:"label" json:"label"`   // native navigation/list label
 	Icon   string   `yaml:"icon" json:"icon"`     // semantic icon name, mapped by each client
@@ -545,11 +576,12 @@ type AsyncResultSpec struct {
 // AsyncNotifySpec tells the platform which app events should wake the
 // caller when the async result changes state.
 type AsyncNotifySpec struct {
-	Target       string            `yaml:"target,omitempty" json:"target,omitempty"` // caller
-	Mode         string            `yaml:"mode,omitempty" json:"mode,omitempty"`     // once
-	Events       []string          `yaml:"events,omitempty" json:"events,omitempty"`
-	Match        map[string]string `yaml:"match,omitempty" json:"match,omitempty"`
-	ExpiresAfter string            `yaml:"expires_after,omitempty" json:"expires_after,omitempty"`
+	TerminalEvents []string          `yaml:"terminal_events,omitempty" json:"terminal_events,omitempty"`
+	Target         string            `yaml:"target,omitempty" json:"target,omitempty"` // caller
+	Mode           string            `yaml:"mode,omitempty" json:"mode,omitempty"`     // once (default) | stream
+	Events         []string          `yaml:"events,omitempty" json:"events,omitempty"`
+	Match          map[string]string `yaml:"match,omitempty" json:"match,omitempty"`
+	ExpiresAfter   string            `yaml:"expires_after,omitempty" json:"expires_after,omitempty"`
 }
 
 // PromptFragment files concatenate into instance directives at boot
@@ -572,11 +604,12 @@ type PromptFragment struct {
 //	instance.status — thin status strip on the agent detail header
 //	settings.app    — embedded into the Apps tab's per-install detail
 type UIPanel struct {
-	Slot      string `yaml:"slot" json:"slot"`
-	Label     string `yaml:"label" json:"label"`
-	Icon      string `yaml:"icon" json:"icon"`
-	Entry     string `yaml:"entry" json:"entry"`                             // sidecar path used as iframe fallback
-	Suggested bool   `yaml:"suggested,omitempty" json:"suggested,omitempty"` // selected by default until the user customizes this slot
+	HostUI    *HostUI `yaml:"host_ui,omitempty" json:"host_ui,omitempty"`
+	Slot      string  `yaml:"slot" json:"slot"`
+	Label     string  `yaml:"label" json:"label"`
+	Icon      string  `yaml:"icon" json:"icon"`
+	Entry     string  `yaml:"entry" json:"entry"`                             // sidecar path used as iframe fallback
+	Suggested bool    `yaml:"suggested,omitempty" json:"suggested,omitempty"` // selected by default until the user customizes this slot
 }
 
 // UIApp declares a standalone, own-origin UI served at a Traefik
@@ -633,6 +666,14 @@ type WorkerSpec struct {
 //	image     — fallback for non-Go apps or when extra isolation
 //	            matters. Orchestrator deploys the image to a worker.
 type Runtime struct {
+	ResourcePolicy *ResourceDeclaration `yaml:"resource_policy,omitempty" json:"resource_policy,omitempty"`
+	Ingress        *RuntimeIngress      `yaml:"ingress,omitempty" json:"ingress,omitempty"`
+	// Package contains portable release metadata for managed remote execution.
+	Package *RuntimePackage `yaml:"package,omitempty" json:"package,omitempty"`
+	// ActivationStrategy controls replacement of one installation. Exclusive
+	// stops the previous process before starting its replacement, including
+	// listeners whose ports are selected through app configuration.
+	ActivationStrategy string `yaml:"activation_strategy,omitempty" json:"activation_strategy,omitempty"`
 	// Kind — "service" | "source" | "static". The first two start a
 	// sidecar (image pull or git build); "static" means no process at
 	// all — the app contributes only assets that apteva-server mounts
@@ -827,6 +868,8 @@ type ConfigField struct {
 	// surface a "missing dep" error rather than a silent dropdown
 	// fail at config time.
 	App string `yaml:"app,omitempty" json:"app,omitempty"`
+	// AppRole selects the exact bound app installation for discovery.
+	AppRole string `yaml:"app_role,omitempty" json:"app_role,omitempty"`
 
 	// Discovery — for type=select_from_integration AND
 	// type=select_from_app: how to fetch the list of options. The
@@ -904,6 +947,7 @@ const (
 	PermInstancesWrite     Permission = "platform.instances.write"
 	// PermThreadsWrite lets an app target events at, create, and stop opaque
 	// threads belonging to agents in the app install's project scope.
+	PermFileReferences  Permission = "platform.files.references"
 	PermThreadsWrite    Permission = "platform.threads.write"
 	PermMCPAttach       Permission = "platform.mcp.attach"
 	PermChannelsSend    Permission = "platform.channels.send"
@@ -1002,10 +1046,18 @@ const (
 	// telemetry exposes directives, tool arguments, and model output in
 	// flight, and the consent screen should say so explicitly.
 	PermTelemetryRead Permission = "platform.telemetry.read"
+	// PermTelemetryObserve exposes content-free activity metadata and history.
+	PermTelemetryObserve Permission = "platform.telemetry.observe"
+	// PermRuntimesObserve permits read-only runtime inventory across installations
+	// within an authorized project. It grants no runtime control or content.
+	PermRuntimesObserve Permission = "platform.runtimes.observe"
 	// PermTemplatesRead lets an app read portable built-in and project-owned
 	// template definitions for projects visible to its installation. Template
 	// definitions contain configuration only, never credentials or runtime data.
 	PermTemplatesRead Permission = "platform.templates.read"
+	// PermContributionsRead permits discovery and read-only access to consented
+	// contribution contracts. Producer and record grants are checked separately.
+	PermContributionsRead Permission = "platform.contributions.read"
 )
 
 // AllPermissions returns the full taxonomy — used by the dashboard's
@@ -1014,7 +1066,7 @@ func AllPermissions() []Permission {
 	return []Permission{
 		PermDBWriteApp, PermNetEgress,
 		PermConnectionsRead, PermConnectionsWrite, PermConnectionsExecute,
-		PermInstancesRead, PermInstancesWrite, PermThreadsWrite,
+		PermInstancesRead, PermInstancesWrite, PermThreadsWrite, PermFileReferences,
 		PermMCPAttach, PermChannelsSend, PermAppsCall, PermEventsSubscribe,
 		PermFSReadShared, PermFSWriteShared,
 		PermOAuthStart, PermConnectionsManage, PermConnectionsManageOwnedCredentials,
@@ -1029,8 +1081,9 @@ func AllPermissions() []Permission {
 		PermDNSRead, PermDNSWrite,
 		PermPlatformBackupRead, PermPlatformBackupRestore,
 		PermDashboardConnect,
-		PermTelemetryRead,
+		PermTelemetryRead, PermTelemetryObserve, PermRuntimesObserve,
 		PermTemplatesRead,
+		PermContributionsRead,
 	}
 }
 
@@ -1040,14 +1093,22 @@ func AllPermissions() []Permission {
 // callers remain forward-compatible with newer SDK taxonomies.
 func PermissionDescription(permission Permission) string {
 	switch permission {
+	case PermContributionsRead:
+		return "Discover app widgets and read consented app data exports in accessible projects. Producer permissions and record access still apply."
+	case PermFileReferences:
+		return "Register immutable app attachments and grant their use to this app’s agent threads."
 	case PermPlatformBackupRead:
 		return "Read and stream a full backup of the platform and installed app databases."
 	case PermPlatformBackupRestore:
 		return "Restore a platform backup, replacing app data and staging the platform database for restart."
 	case PermDashboardConnect:
 		return "Allow the entire dashboard to connect to registered HTTPS destinations. Requires an administrator-owned installation; does not grant CORS or file access."
+	case PermTelemetryObserve:
+		return "Read activity metadata and retained history without prompts, thoughts, message bodies or tool arguments."
+	case PermRuntimesObserve:
+		return "Observe runtime status, agents and installed apps across installations in authorized projects. Does not grant execution access."
 	case PermTelemetryRead:
-		return "Subscribe to live telemetry (thoughts, tool calls, streaming output) from agents you own."
+		return "Read live telemetry and retained history (thoughts, tool calls, streaming output) from agents you own."
 	case PermConnectionsManageOwnedCredentials:
 		return "Create, rotate, and revoke non-exportable integration credentials owned by this app installation."
 	case PermManagedTenantsManage:
@@ -1090,6 +1151,33 @@ func ParseManifest(data []byte) (*Manifest, error) {
 // independent of the deployment context. Dynamic checks (image exists,
 // permission scope agrees with what the user consented) live elsewhere.
 func ValidateManifest(m *Manifest) error {
+	if err := ValidateComponentDeclarations(m.Components); err != nil {
+		return err
+	}
+	if _, err := ResolveResources(m.Runtime.ResourcePolicy); err != nil {
+		return err
+	}
+	if err := ValidateAgentSetup(m.AgentSetup); err != nil {
+		return err
+	}
+	if err := ValidateRuntimeIngress(m.Runtime.Ingress); err != nil {
+		return err
+	}
+	if err := ValidateRuntimePackage(m.Runtime.Package); err != nil {
+		return err
+	}
+	if err := ValidateActivationStrategy(m.Runtime); err != nil {
+		return err
+	}
+	if err := validateContributions(m); err != nil {
+		return err
+	}
+	if err := validateSetup(m); err != nil {
+		return err
+	}
+	if err := validateNotificationDeclarations(m.Provides.Publishes); err != nil {
+		return err
+	}
 	if m.Runtime.StartupTimeoutSeconds < 0 || m.Runtime.StartupTimeoutSeconds > 3600 {
 		return fmt.Errorf("runtime.startup_timeout_seconds must be between 0 and 3600")
 	}
@@ -1206,6 +1294,11 @@ func ValidateManifest(m *Manifest) error {
 	if err := validateProvidedPermissions(&m.Provides); err != nil {
 		return err
 	}
+	for i, panel := range m.Provides.UIPanels {
+		if err := validateHostUI(panel.HostUI); err != nil {
+			return fmt.Errorf("provides.ui_panels[%d].host_ui: %w", i, err)
+		}
+	}
 	if err := validateUISurfaces(m.Provides.UISurfaces); err != nil {
 		return err
 	}
@@ -1229,6 +1322,12 @@ func validateUIComponents(components []UIComponent) error {
 	for i := range components {
 		component := &components[i]
 		prefix := fmt.Sprintf("provides.ui_components[%d]", i)
+		if err := validateWidgetSettingsUI(component.SettingsSchema, component.SettingsUI); err != nil {
+			return fmt.Errorf("%s.settings_ui: %w", prefix, err)
+		}
+		if err := validateHostUI(component.HostUI); err != nil {
+			return fmt.Errorf("%s.host_ui: %w", prefix, err)
+		}
 		if !isSlug(component.Name) {
 			return fmt.Errorf("%s.name must be a lowercase slug (a-z0-9-)", prefix)
 		}
@@ -1257,6 +1356,16 @@ func validateUIComponents(components []UIComponent) error {
 		default:
 			return fmt.Errorf("%s.visibility %q unsupported (attached|project)", prefix, component.Visibility)
 		}
+		viewSeen := map[string]bool{}
+		for _, view := range component.RecommendedViews {
+			if view != "personal" && view != "business" && view != "developer" {
+				return fmt.Errorf("%s.recommended_views contains unsupported view %q", prefix, view)
+			}
+			if viewSeen[view] {
+				return fmt.Errorf("%s.recommended_views contains duplicate view %q", prefix, view)
+			}
+			viewSeen[view] = true
+		}
 		sizeSeen := map[string]bool{}
 		for _, size := range component.SupportedSizes {
 			if size != "half" && size != "full" {
@@ -1279,6 +1388,19 @@ func validateUIComponents(components []UIComponent) error {
 			if strings.TrimSpace(topic) == "" {
 				return fmt.Errorf("%s.refresh_topics contains an empty topic", prefix)
 			}
+		}
+		dashboardScopeSeen := map[string]bool{}
+		for _, scope := range component.DashboardScopes {
+			if scope != UIComponentDashboardScopeProject && scope != UIComponentDashboardScopeGlobal {
+				return fmt.Errorf("%s.dashboard_scopes contains unsupported scope %q", prefix, scope)
+			}
+			if dashboardScopeSeen[scope] {
+				return fmt.Errorf("%s.dashboard_scopes contains duplicate scope %q", prefix, scope)
+			}
+			dashboardScopeSeen[scope] = true
+		}
+		if len(dashboardScopeSeen) > 0 && !slotSeen[UIComponentSlotDashboardHome] {
+			return fmt.Errorf("%s.dashboard_scopes is only supported for dashboard.home components", prefix)
 		}
 		if component.Native != nil {
 			if !slotSeen[UIComponentSlotDashboardHome] {
@@ -1348,6 +1470,9 @@ func validateUISurfaces(surfaces []UISurface) error {
 	seen := make(map[string]bool, len(surfaces))
 	for i, surface := range surfaces {
 		prefix := fmt.Sprintf("provides.ui_surfaces[%d]", i)
+		if err := validateHostUI(surface.HostUI); err != nil {
+			return fmt.Errorf("%s.host_ui: %w", prefix, err)
+		}
 		if !isSlug(surface.ID) {
 			return fmt.Errorf("%s.id must be a lowercase slug (a-z0-9-)", prefix)
 		}
@@ -1468,6 +1593,9 @@ func validateProvidedPermissions(p *Provides) error {
 	}
 	for i := range p.MCPTools {
 		t := &p.MCPTools[i]
+		if err := ValidateAsyncResultSpec(t.AsyncResult); err != nil {
+			return fmt.Errorf("provides.mcp_tools[%q].async_result: %w", t.Name, err)
+		}
 		switch t.Exposure {
 		case "", ToolExposurePublic, ToolExposureAppOnly:
 		default:

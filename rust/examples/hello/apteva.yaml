@@ -1,0 +1,25 @@
+{
+  "schema": "apteva-app/v1",
+  "name": "rust-hello",
+  "version": "0.1.0",
+  "description": "Isolated language-neutral app contract example",
+  "runtime": {
+    "kind": "service",
+    "port": 8080,
+    "health_check": "/health",
+    "binaries": {
+      "darwin-arm64": "./bin",
+      "linux-amd64": "./bin",
+      "linux-arm64": "./bin",
+      "darwin-amd64": "./bin"
+    }
+  },
+  "provides": {
+    "mcp_tools": [
+      {
+        "name": "hello",
+        "description": "A safe greeting for contract tests"
+      }
+    ]
+  }
+}

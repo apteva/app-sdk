@@ -153,13 +153,17 @@ type RuntimeAgentDraft struct {
 }
 
 type RuntimeAgentSpawnRequest struct {
-	SourceAgentID int64              `json:"source_agent_id,omitempty"`
-	Draft         *RuntimeAgentDraft `json:"draft,omitempty"`
-	Directive     string             `json:"directive,omitempty"`
-	Alias         string             `json:"alias,omitempty"`
-	StartPaused   bool               `json:"start_paused,omitempty"`
-	Provider      string             `json:"provider,omitempty"`
-	Model         string             `json:"model,omitempty"`
+	// Omitted scope preserves instance-wide startup pause. Thread scope pauses
+	// only StartPausedThreadID; delegated workers retain the instance policy.
+	StartPausedScope    string             `json:"start_paused_scope,omitempty"`
+	StartPausedThreadID string             `json:"start_paused_thread_id,omitempty"`
+	SourceAgentID       int64              `json:"source_agent_id,omitempty"`
+	Draft               *RuntimeAgentDraft `json:"draft,omitempty"`
+	Directive           string             `json:"directive,omitempty"`
+	Alias               string             `json:"alias,omitempty"`
+	StartPaused         bool               `json:"start_paused,omitempty"`
+	Provider            string             `json:"provider,omitempty"`
+	Model               string             `json:"model,omitempty"`
 }
 
 type RuntimeAgent struct {
@@ -182,18 +186,21 @@ type RuntimeAgentEventRequest struct {
 // agent. The runtime and target agent are selected by the method arguments, so
 // this request never accepts a global agent id.
 type RuntimeRealtimeSpawnRequest struct {
-	ThreadID                   string                 `json:"thread_id"`
-	Directive                  string                 `json:"directive"`
-	Voice                      string                 `json:"voice,omitempty"`
-	Provider                   string                 `json:"provider,omitempty"`
-	CapabilityMode             RealtimeCapabilityMode `json:"capability_mode,omitempty"`
-	Tools                      []string               `json:"tools,omitempty"`
-	MCP                        []string               `json:"mcp,omitempty"`
-	CallContext                *RealtimeCallContext   `json:"call_context,omitempty"`
-	TurnDetection              *RealtimeTurnDetection `json:"turn_detection,omitempty"`
-	Ephemeral                  bool                   `json:"ephemeral,omitempty"`
-	InitialMessage             string                 `json:"initial_message,omitempty"`
-	BridgeDisconnectTTLSeconds int                    `json:"bridge_disconnect_ttl_seconds,omitempty"`
+	RealtimeMedia              *RealtimeMediaConfig     `json:"realtime_media,omitempty"`
+	ThreadID                   string                   `json:"thread_id"`
+	Directive                  string                   `json:"directive"`
+	Voice                      string                   `json:"voice,omitempty"`
+	Provider                   string                   `json:"provider,omitempty"`
+	Model                      string                   `json:"model,omitempty"`
+	RealtimeExecution          *RealtimeExecutionConfig `json:"realtime_execution,omitempty"`
+	CapabilityMode             RealtimeCapabilityMode   `json:"capability_mode,omitempty"`
+	Tools                      []string                 `json:"tools,omitempty"`
+	MCP                        []string                 `json:"mcp,omitempty"`
+	CallContext                *RealtimeCallContext     `json:"call_context,omitempty"`
+	TurnDetection              *RealtimeTurnDetection   `json:"turn_detection,omitempty"`
+	Ephemeral                  bool                     `json:"ephemeral,omitempty"`
+	InitialMessage             string                   `json:"initial_message,omitempty"`
+	BridgeDisconnectTTLSeconds int                      `json:"bridge_disconnect_ttl_seconds,omitempty"`
 }
 
 // RuntimeAgentWaitRequest controls completion detection for one execution.
@@ -247,14 +254,7 @@ type RuntimeAgentMetrics struct {
 	Errors        int     `json:"errors"`
 }
 
-type RuntimeTelemetryEvent struct {
-	ID       string          `json:"id"`
-	AgentID  int64           `json:"instance_id"`
-	ThreadID string          `json:"thread_id"`
-	Type     string          `json:"type"`
-	Time     time.Time       `json:"time"`
-	Data     json.RawMessage `json:"data"`
-}
+type RuntimeTelemetryEvent = TelemetryStreamEvent
 
 type RuntimeEdgeCall struct {
 	Method   string `json:"method"`

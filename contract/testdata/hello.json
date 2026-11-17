@@ -1,0 +1,4 @@
+[
+ {"name":"hello catalog","method":"POST","path":"/mcp","auth":"valid","body":{"jsonrpc":"2.0","id":2,"method":"tools/list"},"status":200,"want":{"id":2,"result":{"tools":[{"name":"hello","description":"A safe greeting for contract tests","inputSchema":{"type":"object","properties":{"name":{"type":"string"}},"required":["name"]}}]}}},
+ {"name":"hello call","method":"POST","path":"/mcp","auth":"valid","body":{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"hello","arguments":{"name":"Ada"}}},"status":200,"want":{"id":3,"result":{"content":[{"type":"text","text":"{\"install_id\":\"101\",\"message\":\"Hello, Ada!\",\"project_id\":\"test\"}"}]}}}
+]
