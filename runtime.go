@@ -316,6 +316,14 @@ type RuntimeEdgeCall struct {
 	Blocked     bool      `json:"blocked,omitempty"`
 	Recorded    bool      `json:"recorded,omitempty"`
 	LogicalTime time.Time `json:"logical_time,omitempty"`
+	// Kind is "integration_simulation" for a tool call answered by a
+	// simulated integration and "integration_webhook" for an event it
+	// delivered; empty for network egress. Integration, Tool and Event
+	// name what was simulated.
+	Kind        string `json:"kind,omitempty"`
+	Integration string `json:"integration,omitempty"`
+	Tool        string `json:"tool,omitempty"`
+	Event       string `json:"event,omitempty"`
 }
 
 type RuntimeHTTPMock struct {
@@ -350,6 +358,17 @@ type RuntimeIntegrationBinding struct {
 	AuthType       string            `json:"auth_type,omitempty"`
 	Credentials    map[string]string `json:"credentials,omitempty"`
 	ExposeToAgents bool              `json:"expose_to_agents,omitempty"`
+	// Simulate runs the integration's catalog simulation (its `mock`
+	// section) for this fake connection: tool calls read and change
+	// simulated provider state, unsupported tools fail with
+	// RuntimeErrMockUnsupportedTool, and provider events are signed and
+	// delivered to the runtime's apps. Drive provider-side events with
+	// RuntimeIntegrationSimulationClient. Integration fixtures still take
+	// precedence for the tools they name.
+	Simulate bool `json:"simulate,omitempty"`
+	// Seed pre-populates seedable simulation collections, for example
+	// {"phone_numbers": [{"phone_number": "+15550100001"}]}. Requires Simulate.
+	Seed map[string][]map[string]any `json:"seed,omitempty"`
 }
 
 // RuntimeConnectionBinding binds an existing project connection to one role
