@@ -90,6 +90,14 @@ type RuntimeCreateRequest struct {
 	// from Config: booleans are "true"/"false". Keys outside the app's
 	// config_schema are rejected.
 	AppConfig map[string]map[string]string `json:"app_config,omitempty"`
+	// Apps adds apps by name rather than by project install, so a runtime can
+	// test an app the project has not installed. Each name resolves to a
+	// source the same way required app dependencies do: a running install in
+	// the project or a global one, the local app cache, the registry, then a
+	// development checkout. The copy starts with empty settings and no
+	// integration connections; set them with AppConfig and
+	// IntegrationBindings. A name may not also come from AppInstallIDs.
+	Apps []RuntimeAppSource `json:"apps,omitempty"`
 }
 
 // RuntimeErrAppNotInRuntime is the error code for a call from a runtime app
@@ -402,6 +410,14 @@ type RuntimeSubscription struct {
 type RuntimeSnapshotRequest struct {
 	ID          string `json:"id,omitempty"`
 	Description string `json:"description,omitempty"`
+}
+
+// RuntimeAppSource names an app to run without a project install. Version is
+// an optional semver constraint such as ">=0.27.1" or "0.27.1"; empty takes the
+// first source found.
+type RuntimeAppSource struct {
+	Name    string `json:"name"`
+	Version string `json:"version,omitempty"`
 }
 
 type RuntimeSnapshot struct {
