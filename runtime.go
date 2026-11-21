@@ -83,6 +83,13 @@ type RuntimeCreateRequest struct {
 	// are not installed in the runtime. Anything else is refused with
 	// RuntimeErrAppNotInRuntime.
 	AppGrants []RuntimeAppGrant `json:"app_grants,omitempty"`
+	// AppConfig sets install settings on the runtime's app copies, keyed by
+	// app name and then by config_schema field name. Copies otherwise start
+	// with empty settings. The values are applied before each copy first
+	// starts, so no restart is needed. Values are strings, as apps read them
+	// from Config: booleans are "true"/"false". Keys outside the app's
+	// config_schema are rejected.
+	AppConfig map[string]map[string]string `json:"app_config,omitempty"`
 }
 
 // RuntimeErrAppNotInRuntime is the error code for a call from a runtime app
