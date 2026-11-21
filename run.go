@@ -309,6 +309,7 @@ func cachedPublicRouteMatcher(pattern string) (matcher *http.ServeMux) {
 // it as static files so the dashboard can iframe panel HTML directly.
 func mountFrameworkRoutes(mux *http.ServeMux, app App, ctx *AppCtx) {
 	mountComponentRoutes(mux, app)
+	mountIntegrationSimulationRoute(mux, app, ctx)
 	mux.HandleFunc("/health", func(w http.ResponseWriter, _ *http.Request) {
 		if ctx != nil && ctx.restore != nil {
 			// The platform requires this field after passing a restore
