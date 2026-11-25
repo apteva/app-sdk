@@ -68,10 +68,43 @@ type ObservedRuntime struct {
 	CreatedAt time.Time      `json:"created_at"`
 	ExpiresAt time.Time      `json:"expires_at"`
 }
+
+// ObservedThread is one thread of an agent. ID, ParentID and Status are the
+// original fields; the rest are filled by servers that report ThreadSchema 1
+// or later and are empty otherwise. Which fields are filled also depends on
+// the caller's permissions:
+//
+//   - platform.instances.read (needed for the route at all): Name through
+//     StartedAt.
+//   - telemetry.observe or telemetry.read: LastActivityAt, Current, SpawnedBy,
+//     Ended, and threads that already ended (AgentThreadsQuery.IncludeEnded).
+//   - telemetry.read, for an agent the app's user owns: Purpose,
+//     BlockedReason and Ended.Result.
 type ObservedThread struct {
 	ID       string `json:"id"`
 	ParentID string `json:"parent_id,omitempty"`
-	Status   string `json:"status,omitempty"`
+	// Status is the coarse original value: running, sleeping, waiting,
+	// paused or stopped. Prefer State.
+	Status string `json:"status,omitempty"`
+
+	Name       string    `json:"name,omitempty"`
+	Depth      int       `json:"depth,omitempty"`
+	State      string    `json:"state,omitempty"` // one of the ThreadState constants
+	NextWakeAt time.Time `json:"next_wake_at,omitzero"`
+	Turns      int       `json:"turns,omitempty"`
+	Model      string    `json:"model,omitempty"`
+	Provider   string    `json:"provider,omitempty"`
+	Realtime   bool      `json:"realtime,omitempty"`
+	Ephemeral  bool      `json:"ephemeral,omitempty"`
+	StartedAt  time.Time `json:"started_at,omitzero"`
+
+	LastActivityAt time.Time          `json:"last_activity_at,omitzero"`
+	Current        *ThreadCurrentStep `json:"current,omitempty"`
+	SpawnedBy      *ThreadSpawnLink   `json:"spawned_by,omitempty"`
+	Ended          *ThreadEnd         `json:"ended,omitempty"`
+
+	Purpose       string `json:"purpose,omitempty"` // first line of the directive, at most 200 characters
+	BlockedReason string `json:"blocked_reason,omitempty"`
 }
 type ObservedAttachment struct {
 	ToolsAvailable bool     `json:"tools_available"`
@@ -87,6 +120,9 @@ type AgentTopology struct {
 	Attachments          []ObservedAttachment `json:"attachments"`
 	ThreadsAvailable     bool                 `json:"threads_available"`
 	AttachmentsAvailable bool                 `json:"attachments_available"`
+	// ThreadSchema is 1 on servers that fill the extended ObservedThread
+	// fields and serve thread activity; 0 on older servers.
+	ThreadSchema int `json:"thread_schema,omitempty"`
 }
 type TelemetryClient interface {
 	SubscribeTelemetry(context.Context, TelemetrySubscription) (<-chan TelemetryStreamEvent, error)
@@ -179,12 +215,15 @@ func (c *telemetryClient) request(ctx context.Context, suffix string, v url.Valu
 	}
 	if resp.StatusCode != 200 {
 		resp.Body.Close()
-		return nil, &telemetryHTTPError{resp.StatusCode}
+		return nil, &telemetryHTTPError{status: resp.StatusCode, threadActivity: resp.Header.Get(threadActivityHeader) == "1"}
 	}
 	return resp, nil
 }
 
-type telemetryHTTPError struct{ status int }
+type telemetryHTTPError struct {
+	status         int
+	threadActivity bool // the response came from a server that serves thread activity
+}
 
 func (e *telemetryHTTPError) Error() string {
 	return fmt.Sprintf("telemetry request returned HTTP %d", e.status)
