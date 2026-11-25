@@ -392,3 +392,148 @@ func TestThreadStatusForState(t *testing.T) {
 		}
 	}
 }
+
+// Review 2026-11-25: a rename copied empty open-turn entries to the new id, so
+// the next event reported the thread working since year 1.
+func TestThreadWatchStateRenameWithoutOpenTurnStaysIdle(t *testing.T) {
+	st := newThreadWatchState(0)
+	st.reset([]ObservedThread{{ID: "main"}, {ID: "old", ParentID: "main", State: ThreadStateWaiting}})
+	now := time.Now().UTC()
+	event := func(thread, kind string, data map[string]any) {
+		raw, _ := json.Marshal(data)
+		st.apply(TelemetryStreamEvent{ThreadID: thread, Type: kind, Time: now, Data: raw})
+	}
+	event("new", "thread.renamed", map[string]any{"old_id": "old", "new_id": "new"})
+	event("new", "tool.call", map[string]any{"tool_name": "crm_list", "tool_span_id": "s1"})
+	event("new", "tool.result", map[string]any{"tool_name": "crm_list", "tool_span_id": "s1"})
+	for _, th := range st.list(now) {
+		if th.ID != "new" {
+			continue
+		}
+		if th.State != ThreadStateWaiting || th.Current != nil {
+			t.Fatalf("renamed thread state=%q current=%+v, want waiting with nothing open", th.State, th.Current)
+		}
+		return
+	}
+	t.Fatal("renamed thread missing")
+}
+
+// An open turn does move with the rename.
+func TestThreadWatchStateRenameKeepsOpenTurn(t *testing.T) {
+	st := newThreadWatchState(0)
+	since := time.Now().Add(-time.Minute).UTC()
+	st.reset([]ObservedThread{{ID: "old", State: ThreadStateWorking, Current: &ThreadCurrentStep{Kind: "model", Since: since}}})
+	raw, _ := json.Marshal(map[string]any{"old_id": "old", "new_id": "new"})
+	st.apply(TelemetryStreamEvent{ThreadID: "new", Type: "thread.renamed", Time: time.Now(), Data: raw})
+	raw, _ = json.Marshal(map[string]any{"tool_name": "crm_list", "tool_span_id": "s1"})
+	st.apply(TelemetryStreamEvent{ThreadID: "new", Type: "tool.result", Time: time.Now(), Data: raw})
+	th := st.list(time.Now())[0]
+	if th.ID != "new" || th.State != ThreadStateWorking || th.Current == nil || !th.Current.Since.Equal(since) {
+		t.Fatalf("open turn lost in rename: %+v", th)
+	}
+}
+
+func TestGetAgentThreadsClampsWindowAndSpotsMissingRoute(t *testing.T) {
+	var windows []string
+	marked := true
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if marked {
+			w.Header().Set(threadActivityHeader, "1")
+		}
+		if r.URL.Query().Get("project_id") == "missing" {
+			http.NotFound(w, r)
+			return
+		}
+		windows = append(windows, r.URL.Query().Get("include_ended"))
+		json.NewEncoder(w).Encode(AgentTopology{AgentID: 7, ThreadSchema: 1})
+	}))
+	defer server.Close()
+	client, _ := NewTelemetryClient(server.URL, "key")
+	observer := client.(ThreadObserver)
+	for _, d := range []time.Duration{48 * time.Hour, 200 * time.Millisecond} {
+		if _, e := observer.GetAgentThreads(context.Background(), AgentThreadsQuery{ProjectID: "p", AgentID: 7, IncludeEnded: d}); e != nil {
+			t.Fatal(e)
+		}
+	}
+	if len(windows) != 2 || windows[0] != "86400" || windows[1] != "1" {
+		t.Fatalf("include_ended sent %v, want [86400 1]", windows)
+	}
+	// A marked 404 is a missing agent, not an old server.
+	_, e := observer.GetAgentThreads(context.Background(), AgentThreadsQuery{ProjectID: "missing", AgentID: 7})
+	if e == nil || errors.Is(e, ErrThreadObservationUnsupported) {
+		t.Fatalf("missing agent reported as %v", e)
+	}
+	marked = false
+	if _, e = observer.GetAgentThreads(context.Background(), AgentThreadsQuery{ProjectID: "missing", AgentID: 7}); !errors.Is(e, ErrThreadObservationUnsupported) {
+		t.Fatalf("server without the route reported as %v", e)
+	}
+}
+
+// A partial list (the server ran out of time adding detail) keeps the detail
+// the watcher already had instead of wiping it.
+func TestThreadWatchStateMergeKeepsDetailFromPartialList(t *testing.T) {
+	st := newThreadWatchState(time.Hour)
+	now := time.Now().UTC()
+	since := now.Add(-30 * time.Second)
+	ended := now.Add(-time.Minute)
+	st.reset([]ObservedThread{
+		{ID: "main", State: ThreadStateWaiting},
+		{ID: "w", ParentID: "main", State: ThreadStateWorking, Current: &ThreadCurrentStep{Kind: "tool", Tool: "crm_list", Since: since},
+			LastActivityAt: since, SpawnedBy: &ThreadSpawnLink{ThreadID: "main", ToolSpanID: "span-1"}, Purpose: "Check the inbox"},
+		{ID: "gone", ParentID: "main", State: ThreadStateDone, Ended: &ThreadEnd{At: ended, Outcome: "completed"}},
+	})
+	st.merge([]ObservedThread{{ID: "main", State: ThreadStateWaiting}, {ID: "w", ParentID: "main", State: ThreadStateWaiting}})
+	list := st.list(now)
+	byID := map[string]ObservedThread{}
+	for _, th := range list {
+		byID[th.ID] = th
+	}
+	w := byID["w"]
+	if w.State != ThreadStateWorking || w.Current == nil || w.Current.Tool != "crm_list" || w.SpawnedBy == nil || w.SpawnedBy.ToolSpanID != "span-1" ||
+		!w.LastActivityAt.Equal(since) || w.Purpose != "Check the inbox" {
+		t.Fatalf("partial list wiped detail: %+v", w)
+	}
+	if g, ok := byID["gone"]; !ok || g.Ended == nil {
+		t.Fatalf("partial list dropped an ended thread: %+v", list)
+	}
+	// The open call still closes on its result.
+	raw, _ := json.Marshal(map[string]any{"tool_name": "crm_list", "tool_span_id": "x"})
+	st.apply(TelemetryStreamEvent{ThreadID: "w", Type: "tool.result", Time: now, Data: raw})
+	for _, th := range st.list(now) {
+		if th.ID == "w" && (th.State != ThreadStateWaiting || th.Current != nil) {
+			t.Fatalf("kept call never closed: %+v", th)
+		}
+	}
+}
+
+// A full list after a partial one replaces everything again.
+func TestWatchAgentThreadsUsesPartialListWithoutWipingDetail(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	since := time.Now().Add(-time.Minute).UTC()
+	var partial atomic.Bool
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/api/telemetry/stream" {
+			http.Error(w, "missing telemetry observation/content permission", 403)
+			return
+		}
+		out := AgentTopology{AgentID: 7, ThreadSchema: 1, Threads: []ObservedThread{{ID: "main", State: ThreadStateWorking, Current: &ThreadCurrentStep{Kind: "model", Since: since}}}}
+		if partial.Load() {
+			out = AgentTopology{AgentID: 7, ThreadSchema: 1, Partial: true, Threads: []ObservedThread{{ID: "main", State: ThreadStateWaiting}}}
+		}
+		json.NewEncoder(w).Encode(out)
+	}))
+	defer server.Close()
+	defer cancel()
+	client, _ := NewTelemetryClient(server.URL, "key")
+	ch, e := client.(ThreadObserver).WatchAgentThreads(ctx, AgentThreadsWatch{AgentThreadsQuery: AgentThreadsQuery{AgentID: 7}, Refresh: 50 * time.Millisecond})
+	if e != nil {
+		t.Fatal(e)
+	}
+	<-ch
+	partial.Store(true)
+	s := waitForThreads(t, ch, "partial refresh", func(s AgentThreadsSnapshot) bool { return s.Reason == "refresh" })
+	if m := threadByID(s, "main"); m == nil || m.State != ThreadStateWorking || m.Current == nil {
+		t.Fatalf("partial refresh wiped the open turn: %+v", s.Threads)
+	}
+}

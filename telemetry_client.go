@@ -123,6 +123,10 @@ type AgentTopology struct {
 	// ThreadSchema is 1 on servers that fill the extended ObservedThread
 	// fields and serve thread activity; 0 on older servers.
 	ThreadSchema int `json:"thread_schema,omitempty"`
+	// Partial is true when the server ran out of time adding telemetry
+	// detail: threads are listed, but current steps, spawn links, last
+	// activity and ended threads may be missing. Keep earlier detail.
+	Partial bool `json:"partial,omitempty"`
 }
 type TelemetryClient interface {
 	SubscribeTelemetry(context.Context, TelemetrySubscription) (<-chan TelemetryStreamEvent, error)

@@ -198,16 +198,34 @@ func (c *AppCtx) ThreadObserverAPI() ThreadObserver {
 func (c *telemetryClient) GetAgentThreads(ctx context.Context, q AgentThreadsQuery) (*AgentTopology, error) {
 	v := telemetryQueryValues(TelemetryQuery{ProjectID: q.ProjectID})
 	if q.IncludeEnded > 0 {
-		v.Set("include_ended", strconv.FormatInt(int64(q.IncludeEnded/time.Second), 10))
+		v.Set("include_ended", strconv.FormatInt(int64(clampIncludeEnded(q.IncludeEnded)/time.Second), 10))
 	}
 	var out AgentTopology
-	if e := c.get(ctx, "/agents/"+strconv.FormatInt(q.AgentID, 10)+"/topology", v, &out); e != nil {
+	e := c.get(ctx, "/agents/"+strconv.FormatInt(q.AgentID, 10)+"/topology", v, &out)
+	var h *telemetryHTTPError
+	if errors.As(e, &h) && h.status == 404 && !h.threadActivity {
+		// Servers with thread observation mark every topology response,
+		// so an unmarked 404 means the route itself is missing.
+		return nil, ErrThreadObservationUnsupported
+	}
+	if e != nil {
 		return nil, e
 	}
 	if out.ThreadSchema < 1 {
 		return nil, ErrThreadObservationUnsupported
 	}
 	return &out, nil
+}
+
+// maxIncludeEnded is the longest IncludeEnded window the server accepts.
+const maxIncludeEnded = 24 * time.Hour
+
+// clampIncludeEnded keeps a positive window between one second and 24 hours.
+func clampIncludeEnded(d time.Duration) time.Duration {
+	if d <= 0 {
+		return 0
+	}
+	return min(max(d, time.Second), maxIncludeEnded)
 }
 
 func (c *telemetryClient) GetThreadActivity(ctx context.Context, q ThreadActivityQuery) (*ThreadActivityPage, error) {
@@ -295,9 +313,7 @@ type threadWatchSource interface {
 // watchAgentThreads subscribes before the first fetch so no change between
 // the two is lost; replaying an event the fetch already reflects is harmless.
 func watchAgentThreads(ctx context.Context, src threadWatchSource, w AgentThreadsWatch) (<-chan AgentThreadsSnapshot, error) {
-	if w.IncludeEnded > 24*time.Hour {
-		w.IncludeEnded = 24 * time.Hour
-	}
+	w.IncludeEnded = clampIncludeEnded(w.IncludeEnded)
 	ctx, cancel := context.WithCancel(ctx)
 	deliveries, watchErr := src.WatchTelemetry(ctx, TelemetryWatch{Query: TelemetryQuery{ProjectID: w.ProjectID, AgentID: w.AgentID, Events: threadWatchEvents, Projection: "metadata"}})
 	live := watchErr == nil
@@ -315,7 +331,7 @@ func watchAgentThreads(ctx context.Context, src threadWatchSource, w AgentThread
 	}
 	out := make(chan AgentThreadsSnapshot, 1)
 	st := newThreadWatchState(w.IncludeEnded)
-	st.reset(first.Threads)
+	st.reset(first.Threads) // nothing earlier to keep, partial or not
 	out <- AgentThreadsSnapshot{Threads: st.list(time.Now()), Live: live, Reason: "initial"}
 	go func() {
 		defer cancel()
@@ -342,7 +358,11 @@ func watchAgentThreads(ctx context.Context, src threadWatchSource, w AgentThread
 				emit(AgentThreadsSnapshot{Threads: st.list(time.Now()), Live: live, Reason: "error", Err: e})
 				return
 			}
-			st.reset(t.Threads)
+			if t.Partial {
+				st.merge(t.Threads)
+			} else {
+				st.reset(t.Threads)
+			}
 			emit(AgentThreadsSnapshot{Threads: st.list(time.Now()), Live: live, Reason: reason})
 		}
 		ticker := time.NewTicker(refresh)
@@ -427,6 +447,65 @@ func (s *threadWatchState) reset(threads []ObservedThread) {
 			s.order = append(s.order, t.ID)
 		}
 		s.threads[t.ID] = &t
+	}
+}
+
+// merge applies a partial list: the server listed the threads but may have
+// left out telemetry detail. Threads it lists replace earlier ones, keeping
+// the earlier detail it could not fill; threads it no longer lists are
+// dropped, except ended ones, which a partial list never includes.
+func (s *threadWatchState) merge(threads []ObservedThread) {
+	previous := s.threads
+	keepTools, keepModels := s.tools, s.models
+	var ended []ObservedThread
+	listed := map[string]bool{}
+	for _, t := range threads {
+		listed[t.ID] = true
+	}
+	for _, id := range s.order {
+		if t, ok := previous[id]; ok && t.Ended != nil && !listed[id] {
+			ended = append(ended, *t)
+		}
+	}
+	merged := make([]ObservedThread, 0, len(threads)+len(ended))
+	for _, t := range threads {
+		if old, ok := previous[t.ID]; ok && old.Ended == nil {
+			if t.Current == nil && old.Current != nil {
+				t.Current = old.Current
+				if t.State != ThreadStatePaused && t.State != ThreadStateBlocked {
+					t.State = ThreadStateWorking
+					t.Status = ThreadStatusForState(t.State)
+				}
+			}
+			if t.LastActivityAt.IsZero() {
+				t.LastActivityAt = old.LastActivityAt
+			}
+			if t.SpawnedBy == nil {
+				t.SpawnedBy = old.SpawnedBy
+			}
+			if t.StartedAt.IsZero() {
+				t.StartedAt = old.StartedAt
+			}
+			if t.Purpose == "" {
+				t.Purpose = old.Purpose
+			}
+		}
+		merged = append(merged, t)
+	}
+	merged = append(merged, ended...)
+	s.reset(merged)
+	// Open calls known only from the stream survive a partial refetch.
+	for id, calls := range keepTools {
+		if _, ok := s.threads[id]; ok && len(calls) > 0 {
+			s.tools[id] = calls
+		}
+	}
+	for id, since := range keepModels {
+		if _, ok := s.threads[id]; ok {
+			if _, has := s.models[id]; !has {
+				s.models[id] = since
+			}
+		}
 	}
 }
 
@@ -544,7 +623,17 @@ func (s *threadWatchState) apply(ev TelemetryStreamEvent) (changed, unknown bool
 					child.ParentID = newID
 				}
 			}
-			s.tools[newID], s.models[newID], s.blocked[newID] = s.tools[oldID], s.models[oldID], s.blocked[oldID]
+			// Move only what exists: a missing open-turn entry must not become
+			// a zero-time open turn under the new id.
+			if v, ok := s.tools[oldID]; ok {
+				s.tools[newID] = v
+			}
+			if v, ok := s.models[oldID]; ok {
+				s.models[newID] = v
+			}
+			if v, ok := s.blocked[oldID]; ok {
+				s.blocked[newID] = v
+			}
 			delete(s.tools, oldID)
 			delete(s.models, oldID)
 			delete(s.blocked, oldID)
