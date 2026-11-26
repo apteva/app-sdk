@@ -66,7 +66,24 @@ return sdk.MCPResult{
 ```
 
 `Data` contains standard base64 without a data-URL prefix. The SDK validates
-image encoding and preserves empty text. Ordinary maps, including maps with a
+image encoding and preserves empty text.
+
+Any block can carry MCP `_meta` through `Meta`. Apteva Core reads two keys on
+image blocks:
+
+- `io.apteva/label`: the caption the model sees with the image, for example
+  `"Frame at 5.0 s"`. Without it, Core uses a short text block placed right
+  before the image, or the image's position.
+- `io.apteva/retention`: how long the image stays relevant. `"keep"` keeps it
+  in later turns, within Core's image budget. `"latest"` means a newer image
+  from the same tool replaces it, as with screen captures.
+
+```go
+{Type: "image", MIMEType: "image/jpeg", Data: frameBase64, Meta: map[string]any{
+    "io.apteva/label":     "Frame at 5.0 s",
+    "io.apteva/retention": "keep",
+}}
+``` Ordinary maps, including maps with a
 `content` field, keep their existing JSON-as-text response. Tool permissions,
 caller identity, project context, and RPC errors use the same execution path.
 

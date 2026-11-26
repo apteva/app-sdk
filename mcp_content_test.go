@@ -137,3 +137,40 @@ func TestNativeMCPContentOlderAppCallbackPreservesEveryBlock(t *testing.T) {
 		}
 	}
 }
+
+func TestNativeMCPContentCarriesMeta(t *testing.T) {
+	result := MCPResult{Content: []MCPContent{
+		{Type: "text", Text: "Frames follow.", Meta: map[string]any{"io.example/source": "summary"}},
+		{Type: "image", MIMEType: "image/jpeg", Data: "aGVsbG8=", Meta: map[string]any{"io.apteva/label": "Frame at 5.0 s", "io.apteva/retention": "keep"}},
+		{Type: "image", MIMEType: "image/png", Data: "aGVsbG8="},
+	}}
+	raw, err := json.Marshal(result)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var wire struct {
+		Content []map[string]json.RawMessage `json:"content"`
+	}
+	if err := json.Unmarshal(raw, &wire); err != nil {
+		t.Fatal(err)
+	}
+	if string(wire.Content[0]["_meta"]) != `{"io.example/source":"summary"}` {
+		t.Fatalf("text block _meta = %s", wire.Content[0]["_meta"])
+	}
+	if string(wire.Content[1]["_meta"]) != `{"io.apteva/label":"Frame at 5.0 s","io.apteva/retention":"keep"}` {
+		t.Fatalf("image block _meta = %s", wire.Content[1]["_meta"])
+	}
+	if _, present := wire.Content[2]["_meta"]; present {
+		t.Fatal("a block without Meta must not send _meta")
+	}
+
+	// Native-content callers get the same blocks back, _meta included.
+	envelope, _ := json.Marshal(map[string]any{"jsonrpc": "2.0", "id": 1, "result": json.RawMessage(raw)})
+	var got MCPResult
+	if err := decodeMCPEnvelope(envelope, "computer", "computer_use", &got); err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(got, result) {
+		t.Fatalf("decoded = %+v", got)
+	}
+}

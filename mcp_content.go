@@ -21,6 +21,12 @@ type MCPContent struct {
 	Text     string `json:"text,omitempty"`
 	Data     string `json:"data,omitempty"`
 	MIMEType string `json:"mimeType,omitempty"`
+	// Meta is the block's MCP _meta: extra information for the client that
+	// is not shown to the model as content. Clients ignore keys they do not
+	// know. Apteva Core reads io.apteva/label (the image's caption) and
+	// io.apteva/retention ("keep", or "latest" when a newer image from the
+	// same tool replaces it) on image blocks.
+	Meta map[string]any `json:"_meta,omitempty"`
 }
 
 func (r MCPResult) MarshalJSON() ([]byte, error) {
@@ -37,9 +43,10 @@ func (c MCPContent) MarshalJSON() ([]byte, error) {
 	switch c.Type {
 	case "text":
 		return marshalJSONNoHTMLEscape(struct {
-			Type string `json:"type"`
-			Text string `json:"text"`
-		}{c.Type, c.Text})
+			Type string         `json:"type"`
+			Text string         `json:"text"`
+			Meta map[string]any `json:"_meta,omitempty"`
+		}{c.Type, c.Text, c.Meta})
 	case "image":
 		if c.MIMEType == "" || c.Data == "" {
 			return nil, fmt.Errorf("MCP image requires mimeType and base64 data")
