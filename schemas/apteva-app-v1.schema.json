@@ -1083,7 +1083,8 @@
               "platform.telemetry.observe",
               "platform.runtimes.observe",
               "platform.templates.read",
-              "platform.contributions.read"
+              "platform.contributions.read",
+              "platform.principals.assert"
             ]
           },
           "type": [

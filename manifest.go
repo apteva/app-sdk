@@ -1096,6 +1096,12 @@ const (
 	// PermContributionsRead permits discovery and read-only access to consented
 	// contribution contracts. Producer and record grants are checked separately.
 	PermContributionsRead Permission = "platform.contributions.read"
+	// PermPrincipalsAssert lets an app say which end user a call to another
+	// app is for. The platform signs that subject for the target and marks
+	// it with the asserting app. It is for apps that authenticate their own
+	// users, such as an API gateway; the target decides whether to accept
+	// subjects asserted by that app.
+	PermPrincipalsAssert Permission = "platform.principals.assert"
 )
 
 // AllPermissions returns the full taxonomy — used by the dashboard's
@@ -1122,6 +1128,7 @@ func AllPermissions() []Permission {
 		PermTelemetryRead, PermTelemetryObserve, PermRuntimesObserve,
 		PermTemplatesRead,
 		PermContributionsRead,
+		PermPrincipalsAssert,
 	}
 }
 
@@ -1131,6 +1138,8 @@ func AllPermissions() []Permission {
 // callers remain forward-compatible with newer SDK taxonomies.
 func PermissionDescription(permission Permission) string {
 	switch permission {
+	case PermPrincipalsAssert:
+		return "Tell other apps which end user a request is for. Those apps see that this app named the user and decide whether to accept it."
 	case PermContributionsRead:
 		return "Discover app widgets and read consented app data exports in accessible projects. Producer permissions and record access still apply."
 	case PermFileReferences:
