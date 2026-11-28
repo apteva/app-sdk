@@ -440,6 +440,7 @@ func (c *httpPlatformClient) callApp(ctx context.Context, appName, tool string, 
 		req.Header.Set(HeaderAppCallResult, "inner")
 		req.Header.Set(HeaderAppResultFormat, AppResultJSON)
 	}
+	setAssertedSubjectHeaders(ctx, req)
 	setAppCallDeadline(req)
 	c.addAuth(req)
 	resp, err := c.slowClient.Do(req)
