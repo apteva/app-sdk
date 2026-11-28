@@ -111,6 +111,8 @@ Set the relevant block in `apteva.yaml` (see `manifest.go` for the full schema):
 
 - `mcp_tools` — agents call them
 - `http_routes` — proxied at `/apps/<name>/<prefix>`
+  - `no_auth: true` makes a route public; the app serves public content or checks its own token or signature.
+  - `cors: app` (only with `no_auth: true`) lets the app answer its own CORS preflights and headers for any origin, including the `null` origin of a sandboxed page. The platform treats requests to such a route as anonymous and never allows credentialed CORS on it. Needs a platform that knows the field; older ones reject the manifest.
 - `prompt_fragments` — concatenated into instance directives
 - `ui_panels` — UMD bundle into Apteva's dashboard slot
 - `ui_surfaces` — code-free, declarative native UI for iOS and Android

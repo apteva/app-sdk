@@ -531,10 +531,42 @@ type UISurface struct {
 // requiring an installation token. The route must serve public content or
 // perform its own token/signature validation. An explicit Method limits this
 // exemption to that method.
+//
+// cors: app hands cross-origin handling of a no_auth route to the app. The
+// platform then forwards CORS preflight (OPTIONS) requests to the sidecar
+// for any origin, including the "null" origin of a sandboxed page, and adds
+// no CORS headers of its own. The sidecar answers the preflight and sets
+// Access-Control-Allow-Origin itself. The platform treats requests to such
+// a route as anonymous: it ignores the caller's platform session cookie and
+// never lets the response carry Access-Control-Allow-Credentials.
 type RouteSpec struct {
 	Method string `yaml:"method,omitempty" json:"method,omitempty"`
 	Prefix string `yaml:"prefix" json:"prefix"`
 	NoAuth bool   `yaml:"no_auth,omitempty" json:"no_auth,omitempty"`
+	CORS   string `yaml:"cors,omitempty" json:"cors,omitempty"` // "" | "app"
+}
+
+// RouteCORSApp is the RouteSpec.CORS value for a route whose app answers
+// its own CORS preflights and headers.
+const RouteCORSApp = "app"
+
+// AppOwnsCORS reports whether the app, not the platform, handles CORS for
+// this route.
+func (r RouteSpec) AppOwnsCORS() bool { return r.NoAuth && r.CORS == RouteCORSApp }
+
+func validateRouteCORS(routes []RouteSpec) error {
+	for _, route := range routes {
+		switch route.CORS {
+		case "":
+		case RouteCORSApp:
+			if !route.NoAuth {
+				return fmt.Errorf("http_routes %q: cors: app requires no_auth: true", route.Prefix)
+			}
+		default:
+			return fmt.Errorf("http_routes %q: cors must be %q or omitted, got %q", route.Prefix, RouteCORSApp, route.CORS)
+		}
+	}
+	return nil
 }
 
 // MCPToolSpec is the per-tool entry the sidecar's MCP endpoint exposes.
@@ -1158,6 +1190,9 @@ func ParseManifest(data []byte) (*Manifest, error) {
 // permission scope agrees with what the user consented) live elsewhere.
 func ValidateManifest(m *Manifest) error {
 	if err := ValidateComponentDeclarations(m.Components); err != nil {
+		return err
+	}
+	if err := validateRouteCORS(m.Provides.HTTPRoutes); err != nil {
 		return err
 	}
 	if _, err := ResolveResources(m.Runtime.ResourcePolicy); err != nil {
